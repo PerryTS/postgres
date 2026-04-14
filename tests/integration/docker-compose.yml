@@ -1,0 +1,31 @@
+# Postgres instance used by integration tests.
+#
+# Starts PG 16 listening on 127.0.0.1:55432 with password auth.
+# Integration tests read PGHOST / PGPORT / PGUSER / PGPASSWORD / PGDATABASE
+# and skip when the env isn't set so CI can opt out per-matrix-leg.
+#
+# Bring up:     docker compose -f tests/integration/docker-compose.yml up -d
+# Shut down:    docker compose -f tests/integration/docker-compose.yml down -v
+# Logs:         docker compose -f tests/integration/docker-compose.yml logs -f pg16
+
+services:
+  pg16:
+    image: postgres:16
+    container_name: perry_postgres_pg16
+    environment:
+      POSTGRES_USER: perry
+      POSTGRES_PASSWORD: perry
+      POSTGRES_DB: perry_test
+    ports:
+      - "55432:5432"
+    command:
+      - postgres
+      # Force cleartext password auth for the C2 test path. SCRAM (C3)
+      # will add `-c password_encryption=scram-sha-256` to a sibling service.
+      - -c
+      - password_encryption=md5
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U perry -d perry_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
