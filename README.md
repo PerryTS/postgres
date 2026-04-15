@@ -358,6 +358,44 @@ source compile to a single-binary native executable on Perry.
 - **[TuskQuery](https://github.com/TuskQuery)** — Tusk, the Perry-native Postgres
   GUI that consumes this driver.
 
+## Performance
+
+Numbers from `bench/run-all.sh` against a local Postgres 16 (`127.0.0.1:55432`,
+unix socket loopback, no SSH tunnel — RTT removed from the picture).
+50 timed iterations + 5 warmups per workload. p50 wall time:
+
+| workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native | pg (node)  | postgres.js (node) |
+| ------------ | -------------------- | ------------------- | ---------------------------- | ---------- | ------------------ |
+| `SELECT 1`   | 93µs                 | 279µs               | 3 ms                         | 117µs      | 77µs               |
+| param 1-row  | 124µs                | 264µs               | 3 ms                         | 147µs      | 144µs              |
+| 1000 × 20    | 4.6 ms               | 5.1 ms              | 23 ms (1 iter)               | 2.5 ms     | 3.0 ms             |
+| 10000 × 20   | 46.6 ms              | 39.8 ms             | (skip)                       | 20.9 ms    | 29.0 ms            |
+
+Notes:
+
+- **`pg` is fastest by a meaningful margin** because it returns `int8`
+  / `numeric` / `date` / `time` / `timestamp` as raw strings unless
+  the caller opts into a parser — no `bigint`, no `Decimal`, no
+  `PgDate` per cell. Most of our remaining gap is the wrapper-allocation
+  cost on those types. We chose to wrap by default because the GUI use
+  case (Tusk) needs them typed; if you don't, those wrappers are pure
+  overhead.
+- **`postgres.js`** sits between us and `pg`; same reason it's slower
+  than `pg` (some parsing) and same reason it's faster than us (less
+  parsing). We're within ~1.5–1.7× of it on bulk results.
+- **Perry-native** has a constant ~3 ms per query overhead vs ~100µs
+  on the JS hosts — that's the AOT runtime's promise / async / FFI
+  per-call cost rather than anything driver-level. The 1000×20 result
+  decodes in 23 ms once a result is buffered (faster than us on Node
+  for 10k rows scaled per row), but row-decoding currently leaks
+  wrapper allocations across calls so the bench can only measure one
+  iteration; tracked at [PerryTS/perry#35](https://github.com/PerryTS/perry/issues/35).
+  10000×20 OOMs on Perry until that lands.
+
+Reproduce: `bench/run-all.sh` after `npm install` inside `bench/` and
+either pointing `PGHOST` / `PGPORT` etc. at any Postgres or starting
+the local one in the same shape (`postgres -p 55432`).
+
 ## Testing
 
 ```bash
