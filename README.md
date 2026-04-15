@@ -364,12 +364,12 @@ Numbers from `bench/run-all.sh` against a local Postgres 16 (`127.0.0.1:55432`,
 unix socket loopback, no SSH tunnel — RTT removed from the picture).
 50 timed iterations + 5 warmups per workload. p50 wall time:
 
-| workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native | pg (node)  | postgres.js (node) | tokio-postgres (rust) |
-| ------------ | -------------------- | ------------------- | ---------------------------- | ---------- | ------------------ | --------------------- |
-| `SELECT 1`   | 56µs                 | 122µs               | 3 ms                         | 72µs       | 58µs               | **35µs**              |
-| param 1-row  | 101µs                | 123µs               | 2.5 ms                       | 71µs       | 126µs              | **35µs**              |
-| 1000 × 20    | 3.5 ms               | 3.4 ms              | 23 ms (1 iter)               | **2.5 ms** | 2.8 ms             | 2.75 ms               |
-| 10000 × 20   | 34.9 ms              | 32.5 ms             | (skip)                       | **20.3 ms**| 27.4 ms            | 26.7 ms               |
+| workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native | pg (node)   | postgres.js (node) | tokio-postgres (rust) |
+| ------------ | -------------------- | ------------------- | ---------------------------- | ----------- | ------------------ | --------------------- |
+| `SELECT 1`   | 73µs                 | 84µs                | 3 ms                         | **149µs**   | 75µs               | 73µs                  |
+| param 1-row  | 100µs                | 128µs               | 3 ms                         | 181µs       | 166µs              | 107µs                 |
+| 1000 × 20    | 3.7 ms               | 3.4 ms              | 43 ms                        | **2.8 ms**  | 3.0 ms             | 2.9 ms                |
+| 10000 × 20   | 37.8 ms              | 34.1 ms             | 896 ms                       | **21.0 ms** | 27.7 ms            | 28.3 ms               |
 
 Notes:
 
@@ -407,12 +407,16 @@ Notes:
   than what you parse into.
 - **Perry-native** has a constant ~3 ms per query overhead vs ~100µs
   on the JS hosts — that's the AOT runtime's promise / async / FFI
-  per-call cost rather than anything driver-level. The 1000×20 result
-  decodes in 23 ms once a result is buffered (faster than us on Node
-  for 10k rows scaled per row), but row-decoding currently leaks
-  wrapper allocations across calls so the bench can only measure one
-  iteration; tracked at [PerryTS/perry#35](https://github.com/PerryTS/perry/issues/35).
-  10000×20 OOMs on Perry until that lands.
+  per-call cost rather than anything driver-level. Bulk decode is
+  currently ~10× slower than the JS hosts on bulk results (44 ms vs
+  3.7 ms on 1000×20; 900 ms vs 38 ms on 10000×20) — every row builds
+  a wrapper-heavy object chain in Perry's arena GC and there's real
+  per-cell cost there the JS JITs optimise out. Correctness is the
+  headline here, not speed: Perry requires ≥ 0.5.28 for stable
+  iteration of bulk result sets (the fix chain is PerryTS/perry
+  #32 / #33 / #34 / #35 / #36 — `CONN_STATES` was getting swept
+  mid-decode because module-level globals weren't registered as GC
+  roots).
 
 Reproduce: `bench/run-all.sh` after `npm install` inside `bench/`
 (plus `cargo` on PATH for the Rust runner) and either pointing

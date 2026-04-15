@@ -80,21 +80,11 @@ export const DEFAULT_WARMUP = 5;
  * specific host can't sustain the default iteration count for a
  * workload (e.g. a known runtime bug).
  *
- * Perry's GC fixes in v0.5.25 / v0.5.26 (PerryTS/perry#34 + #35)
- * unblocked the previous failure modes (silent zero-exit, crashes
- * tied to `net.Socket` listener closures freed by an in-decode
- * sweep). A separate residual issue still caps the bigint-heavy
- * 1k-row workload to one iteration after the small workloads finish
- * — the second call to medium silently exits 0. The 10k×20 workload
- * still OOMs on iter 0. Until that is investigated upstream, Perry
- * runs medium once (representative single-shot wall time) and skips
- * large entirely.
+ * Perry's GC fixes (v0.5.25 #34, v0.5.26 #35, v0.5.28 #36 — module-
+ * level globals were never registered as GC roots, so `CONN_STATES`
+ * could get swept mid-decode) have closed every blocker we saw
+ * building the driver. Perry now runs every workload at the default
+ * iteration count.
  */
-export const PERRY_ITERATIONS_OVERRIDE = new Map<string, number>([
-    ['medium-1k-x-20', 1],
-    ['large-10k-x-20', 0],
-]);
-export const PERRY_WARMUP_OVERRIDE = new Map<string, number>([
-    ['medium-1k-x-20', 0],
-    ['large-10k-x-20', 0],
-]);
+export const PERRY_ITERATIONS_OVERRIDE = new Map<string, number>([]);
+export const PERRY_WARMUP_OVERRIDE = new Map<string, number>([]);
