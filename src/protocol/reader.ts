@@ -11,8 +11,15 @@ export class MessageReader {
 
     /**
      * Append `chunk` to the internal buffer and return every complete
-     * frame that can now be parsed. The returned payloads are independent
-     * copies — safe to retain across subsequent `feed` calls.
+     * frame that can now be parsed.
+     *
+     * Returned `payload` values are SUBARRAY views into the underlying
+     * chunk — they share its memory until JS GC collects both. Safe to
+     * retain across subsequent `feed` calls because reassigning
+     * `this.buf` doesn't invalidate previous slices: each held slice
+     * keeps the original ArrayBuffer alive on its own. Skipping the
+     * old per-frame `Buffer.from(...)` copy is significant on bulk
+     * results — for a 10k-row response that's 10k+ saved memmoves.
      */
     feed(chunk: Buffer): FrameView[] {
         if (this.buf.length === 0) {
@@ -29,15 +36,13 @@ export class MessageReader {
             if (frame === null) {
                 break;
             }
-            out.push({
-                type: frame.type,
-                payload: Buffer.from(frame.payload),
-                consumed: frame.consumed,
-            });
+            out.push(frame);
             offset += frame.consumed;
         }
 
         if (offset > 0) {
+            // Keep the leftover partial frame as its own copy so the
+            // (potentially much larger) consumed prefix can be GC'd.
             this.buf = offset < this.buf.length
                 ? Buffer.from(this.buf.subarray(offset))
                 : Buffer.alloc(0);

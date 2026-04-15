@@ -56,7 +56,7 @@ export type { PoolOptions } from './pool';
 // Type system (C5)
 export * from './types/oids';
 export { Decimal } from './types/numeric';
-export { getCodec, registerType, decodeValue, encodeValue, hasBinaryCodec } from './types/registry';
+export { getCodec, registerType, decodeValue, encodeValue, hasBinaryCodec, pickDecoder } from './types/registry';
 export type { Codec, TextCodec, BinaryCodec } from './types/registry';
 export type { PgDate, PgTime, PgTimestamp, PgInterval } from './types/datetime';
 

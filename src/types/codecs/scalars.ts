@@ -41,13 +41,22 @@ function intScalarCodec(name: string, byteWidth: 2 | 4): Codec<number> {
 export const int2Codec = intScalarCodec('int2', 2);
 export const int4Codec = intScalarCodec('int4', 4);
 
-/** int8 exceeds safe JS number range — always returned as bigint. */
+/** int8 exceeds safe JS number range — always returned as bigint.
+ *
+ *  The text-format decoder used to build the bigint by per-digit
+ *  arithmetic (`n = n * 10n + DIGIT[code]`) because Perry didn't lower
+ *  `BigInt(string)`. Since Perry 0.5.24 (PerryTS/perry#33) the
+ *  constructor works on the AOT target too, and a single `BigInt(s)`
+ *  call is dramatically faster on every host (one runtime parse vs
+ *  ~9–19 separate bigint arithmetic ops per value, plus per-digit
+ *  garbage). For a 10000-row × 5-int8-column result that's a measured
+ *  >2× speedup on bulk decode. */
 export const int8Codec: Codec<bigint> = {
     oid: 20,
     name: 'int8',
     text: {
         decode(buf: Buffer): bigint {
-            return parseBigIntDecimal(buf.toString('utf8'));
+            return BigInt(buf.toString('utf8'));
         },
         encode(v: bigint): Buffer {
             return Buffer.from(v.toString(), 'utf8');
@@ -64,32 +73,6 @@ export const int8Codec: Codec<bigint> = {
         },
     },
 };
-
-/**
- * Parse a base-10 integer string into a `bigint` without using
- * `BigInt(string)` — Perry's codegen doesn't support `BigIntCoerce` yet.
- * Uses bigint literals and arithmetic only (which Perry does support).
- */
-const BIGINT_DIGIT: bigint[] = [0n, 1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n, 9n];
-function parseBigIntDecimal(s: string): bigint {
-    let i = 0;
-    let negative = false;
-    if (s.charAt(0) === '-') {
-        negative = true;
-        i = 1;
-    } else if (s.charAt(0) === '+') {
-        i = 1;
-    }
-    let n = 0n;
-    for (; i < s.length; i++) {
-        const code = s.charCodeAt(i) - 48;
-        if (code < 0 || code > 9) {
-            throw new Error('parseBigIntDecimal: non-digit at offset ' + i);
-        }
-        n = n * 10n + BIGINT_DIGIT[code];
-    }
-    return negative ? -n : n;
-}
 
 // ─── Floats ──────────────────────────────────────────────────────────────────
 

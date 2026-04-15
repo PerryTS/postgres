@@ -93,6 +93,41 @@ export function decodeValue(oid: number, format: number, buf: Buffer): unknown {
 }
 
 /**
+ * Resolve once and return a `(buf) => unknown` thunk specialised for a
+ * single (oid, format) pair. Hot path callers (the row decoder in
+ * connection.ts) call `pickDecoder` once per result column at the top
+ * of `buildQueryResult` so the per-cell loop is just a function
+ * invocation instead of a registry lookup + format branch + fallback
+ * check on every cell.
+ *
+ * Format and codec are baked into the returned closure. The unknown-OID
+ * raw-text fallback and the binary-without-binary-codec fallback both
+ * resolve at construction, not per cell.
+ */
+export function pickDecoder(oid: number, format: number): (buf: Buffer) => unknown {
+    const codec = getCodec(oid);
+    if (codec === undefined) {
+        return decodeAsUtf8;
+    }
+    if (format === FORMAT_BINARY) {
+        if (codec.binary === undefined) {
+            return decodeAsHex;
+        }
+        const dec = codec.binary.decode;
+        return (b: Buffer): unknown => dec(b);
+    }
+    const dec = codec.text.decode;
+    return (b: Buffer): unknown => dec(b);
+}
+
+function decodeAsUtf8(b: Buffer): string {
+    return b.toString('utf8');
+}
+function decodeAsHex(b: Buffer): string {
+    return b.toString('hex');
+}
+
+/**
  * Encode a parameter value for a given OID in the given format. Returns
  * the bytes to put in a Bind message's value slot. Throws if the OID has
  * no codec — caller should route unknown types through `encodeUnknown`

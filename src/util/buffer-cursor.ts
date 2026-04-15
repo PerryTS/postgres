@@ -36,9 +36,16 @@ export class BufferCursor {
     }
 
     readBytes(n: number): Buffer {
+        // Subarray, not Buffer.from(subarray) — the slice shares memory
+        // with `this.buf`, which the caller is still responsible for
+        // keeping alive until done with the slice. For bulk decoders
+        // (row → 20 cells × 10k rows = 200k slices on a single result)
+        // skipping the per-cell memcpy is a measurable win, and the
+        // underlying frame buffer falls out of scope naturally once the
+        // QueryResult is no longer referenced.
         const slice = this.buf.subarray(this.pos, this.pos + n);
         this.pos += n;
-        return Buffer.from(slice);
+        return slice;
     }
 
     readCString(): string {

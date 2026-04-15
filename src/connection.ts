@@ -52,7 +52,7 @@ import {
     TxnStatus,
 } from './protocol/decoder';
 import { registerDefaultCodecs } from './register-defaults';
-import { decodeValue, encodeValue } from './types/registry';
+import { decodeValue, encodeValue, pickDecoder } from './types/registry';
 import { FORMAT_TEXT } from './types/oids';
 import {
     BACKEND_BIND_COMPLETE,
@@ -844,33 +844,46 @@ function handleReadyForQuery(id: number, payload: Buffer): void {
     }
 }
 
-/** Build the public `QueryResult` shape from raw accumulated rows. Decodes
- *  each cell via the type registry once and caches on the result. */
+/** Build the public `QueryResult` shape from raw accumulated rows.
+ *
+ *  Decoder + field metadata is hoisted out of the per-row loop:
+ *  the registry lookup that picks the codec for a column happens
+ *  ONCE (not once per cell). On a 10k-row × 20-column result that's
+ *  20 lookups instead of 200,000, which is the bulk-decode bottleneck.
+ *
+ *  Each column gets a dedicated `(buf) => unknown` thunk that closes
+ *  over the codec it picked. The two flavors (binary vs text) and the
+ *  unknown-OID raw-text fallback are baked in at thunk-construction
+ *  time so the per-cell hot path is just a function call. */
 function buildQueryResult(
     fields: FieldDescription[],
     rowsRaw: RawRow[],
     command: string,
     rowCount: number
 ): QueryResult {
-    const rowsArray: unknown[][] = new Array(rowsRaw.length);
-    const rowsObj: Record<string, unknown>[] = new Array(rowsRaw.length);
-    for (let i = 0; i < rowsRaw.length; i++) {
+    const ncols = fields.length;
+    const nrows = rowsRaw.length;
+
+    // Per-column decoder thunks + name strings, hoisted ONCE.
+    const decoders: ((b: Buffer) => unknown)[] = new Array(ncols);
+    const names: string[] = new Array(ncols);
+    for (let j = 0; j < ncols; j++) {
+        const f = fields[j];
+        names[j] = f.name;
+        decoders[j] = pickDecoder(f.typeOid, f.formatCode);
+    }
+
+    const rowsArray: unknown[][] = new Array(nrows);
+    const rowsObj: Record<string, unknown>[] = new Array(nrows);
+    for (let i = 0; i < nrows; i++) {
         const raw = rowsRaw[i];
-        const arr: unknown[] = new Array(raw.length);
+        const arr: unknown[] = new Array(ncols);
         const obj: Record<string, unknown> = {};
-        for (let j = 0; j < raw.length; j++) {
+        for (let j = 0; j < ncols; j++) {
             const cell = raw[j];
-            let value: unknown;
-            if (cell === null) {
-                value = null;
-            } else {
-                const f = fields[j];
-                value = decodeValue(f.typeOid, f.formatCode, cell);
-            }
+            const value = cell === null ? null : decoders[j](cell);
             arr[j] = value;
-            if (j < fields.length) {
-                obj[fields[j].name] = value;
-            }
+            obj[names[j]] = value;
         }
         rowsArray[i] = arr;
         rowsObj[i] = obj;
