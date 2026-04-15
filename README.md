@@ -9,7 +9,7 @@ Postgres with no JS runtime attached.
 
 > Perry is a TypeScript-to-native compiler: it lowers a strict subset of TS
 > through LLVM into a statically-linked binary. `@perry/postgres` is the
-> reference driver used by [**Tusk**](https://github.com/PerryTS) (the
+> reference driver used by [**Tusk**](https://github.com/TuskQuery) (the
 > Perry-native Postgres GUI), and the showcase for Perry's systems
 > capabilities — every socket read, TLS handshake, and crypto op goes
 > through perry-stdlib rather than a Rust or C shim.
@@ -85,7 +85,7 @@ That's a non-starter for two use cases we care about:
 
 | Runtime          | Status   | Notes                                                                                                                                 |
 | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Perry** (AOT → native) | supported | Same source, compiled via LLVM. TLS upgrade uses `socket.upgradeToTLS` from perry-stdlib. No JS runtime at execution time. |
+| **Perry** (AOT → native) | supported with caveats | Same source, compiled via LLVM. TLS upgrade uses `socket.upgradeToTLS` from perry-stdlib. No JS runtime at execution time. Codecs whose decoded shape diverges from the raw text wire form (`bool`, `bytea`, `json`, `jsonb`, all array types) currently surface as raw text instead — pending a Perry compiler fix for cross-module module-state caching ([PerryTS/perry#32](https://github.com/PerryTS/perry/issues/32)). |
 | **Node.js ≥ 22** | supported | Uses `node:net`, `node:tls`, `node:crypto`, `Buffer`.                                                                                 |
 | **Bun ≥ 1.3**    | supported | Fully works except a known Bun bug in `tls.connect({socket})` for in-place upgrade; the corresponding tests run on Node via `npm run test:tls:node`. |
 
@@ -189,6 +189,11 @@ round-trip through `Buffer`.
 | `json`, `jsonb`                                       | parsed JS value                                                        |
 | `date`, `time`, `timetz`, `timestamp`, `timestamptz`, `interval` | typed objects with `.toString()`, `.toDate()`, microsecond fields      |
 | 1-d arrays of any of the above                        | `Array<T>` with `null` for SQL NULLs                                   |
+
+Perry-native caveat: `bool`, `bytea`, `json`, `jsonb`, and array decoders
+currently fall through to raw text on the AOT target — see the runtime
+table above and [PerryTS/perry#32](https://github.com/PerryTS/perry/issues/32).
+On Node and Bun the table is exact.
 
 ```ts
 import { Decimal } from '@perry/postgres';
@@ -311,19 +316,20 @@ registerType<{ x: number; y: number }>(POINT_OID, {
 
 ```
 src/
-├── protocol/      wire framing + message writer/reader
-├── auth/          SCRAM-SHA-256, MD5, cleartext
-├── transport/     net.Socket wrapper + Perry-vs-Node TLS upgrade
-├── types/         OID → codec registry, 20 built-in codecs
-├── error.ts       structured PgError
-├── notice.ts      NoticeResponse parsing
-├── cancel.ts      fresh-socket CancelRequest
-├── url.ts         libpq connection-string parser
-├── env.ts         PG* environment-variable resolver
-├── sql.ts         `sql` tagged template + `raw()` escape hatch
-├── pool.ts        Connection pool
-├── connection.ts  Connection: lifecycle, simple + extended query
-└── index.ts       public barrel exports
+├── protocol/             wire framing + message writer/reader
+├── auth/                 SCRAM-SHA-256, MD5, cleartext
+├── transport/            net.Socket wrapper + Perry-vs-Node TLS upgrade
+├── types/                OID → codec registry, 20 built-in codecs
+├── error.ts              structured PgError
+├── notice.ts             NoticeResponse parsing
+├── cancel.ts             fresh-socket CancelRequest
+├── url.ts                libpq connection-string parser
+├── env.ts                PG* environment-variable resolver
+├── sql.ts                `sql` tagged template + `raw()` escape hatch
+├── pool.ts               Connection pool
+├── register-defaults.ts  registers every built-in codec; called once from connect()
+├── connection.ts         Connection: lifecycle, simple + extended query
+└── index.ts              public barrel exports
 ```
 
 ### Perry AOT constraints
@@ -345,8 +351,8 @@ source compile to a single-binary native executable on Perry.
 
 - **[PerryTS/perry](https://github.com/PerryTS/perry)** — the TypeScript-to-native
   compiler (LLVM backend) and runtime / stdlib.
-- **[PerryTS](https://github.com/PerryTS)** — Tusk, the Perry-native Postgres
-  GUI that consumes this driver, and the rest of the PerryTS org.
+- **[TuskQuery](https://github.com/TuskQuery)** — Tusk, the Perry-native Postgres
+  GUI that consumes this driver.
 
 ## Testing
 
