@@ -4,6 +4,15 @@
 // that require a real TLS handshake under Node.
 //
 // Run with: `npm run test:tls:node` (or `bun run test:tls:node`).
+//
+// Cleanup contract: each test scopes its own `server` and `conn` to
+// locals and closes both in a `finally` block. We deliberately do NOT
+// share a single module-level `server` variable — it's tempting but
+// dangerous: a failing assertion bypasses the in-test `conn.close()`,
+// the TCP connection stays open, and `server.close()` then waits
+// forever for the connection to drain. The whole node:test run hangs
+// with no diagnostic output. The per-test scope keeps a hung test from
+// taking down the suite.
 
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,6 +20,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Connection } from '../src/index.ts';
 import { connect } from '../src/index.ts';
 import { startMockServer, type MockServer } from '../tests/integration/mock-server.ts';
 
@@ -19,7 +29,6 @@ const KEY_PATH = join(tmpdir(), 'perry_pg_driver_tls.key');
 
 let cert: Buffer;
 let key: Buffer;
-let server: MockServer | null = null;
 
 before(() => {
     if (!existsSync(CERT_PATH) || !existsSync(KEY_PATH)) {
@@ -34,17 +43,27 @@ before(() => {
     key = readFileSync(KEY_PATH);
 });
 
-async function closeServer() {
+/**
+ * Best-effort cleanup helper. Closes the connection (if any) before the
+ * server, so `server.close()` doesn't block on a still-open client. Each
+ * close is wrapped in its own try/catch — a failure tearing down the conn
+ * shouldn't prevent the server from also being torn down.
+ */
+async function teardown(conn: Connection | null, server: MockServer | null): Promise<void> {
+    if (conn !== null) {
+        try { await conn.close(); } catch { /* already closed */ }
+    }
     if (server !== null) {
-        await server.close();
-        server = null;
+        try { await server.close(); } catch { /* already closed */ }
     }
 }
 
 test('sslmode=disable: no SSLRequest, plain startup succeeds', async () => {
+    let server: MockServer | null = null;
+    let conn: Connection | null = null;
     try {
         server = await startMockServer({ authMode: 'trust' });
-        const conn = await connect({
+        conn = await connect({
             host: '127.0.0.1',
             port: server.port,
             user: 'perry',
@@ -52,14 +71,15 @@ test('sslmode=disable: no SSLRequest, plain startup succeeds', async () => {
             ssl: { mode: 'disable' },
         });
         const r = await conn.query('SELECT 1');
-        assert.equal(r.rows[0][0]!.toString('utf8'), '1');
-        await conn.close();
+        assert.equal(r.rowsRaw[0][0]!.toString('utf8'), '1');
     } finally {
-        await closeServer();
+        await teardown(conn, server);
     }
 });
 
 test('sslmode=require: server accepts TLS, query runs over TLS', async () => {
+    let server: MockServer | null = null;
+    let conn: Connection | null = null;
     try {
         server = await startMockServer({
             authMode: 'trust',
@@ -67,7 +87,7 @@ test('sslmode=require: server accepts TLS, query runs over TLS', async () => {
             tlsCert: cert,
             tlsKey: key,
         });
-        const conn = await connect({
+        conn = await connect({
             host: '127.0.0.1',
             port: server.port,
             user: 'perry',
@@ -75,18 +95,18 @@ test('sslmode=require: server accepts TLS, query runs over TLS', async () => {
             ssl: { mode: 'require' },
         });
         const r = await conn.query('SELECT 1');
-        assert.equal(r.rows[0][0]!.toString('utf8'), '1');
+        assert.equal(r.rowsRaw[0][0]!.toString('utf8'), '1');
         assert.equal(conn.backendPid, 42);
-        await conn.close();
     } finally {
-        await closeServer();
+        await teardown(conn, server);
     }
 });
 
 test('sslmode=require against a server that refuses TLS fails clearly', async () => {
+    let server: MockServer | null = null;
+    let caught: Error | null = null;
     try {
         server = await startMockServer({ authMode: 'trust', ssl: 'refuse' });
-        let caught: Error | null = null;
         try {
             await connect({
                 host: '127.0.0.1',
@@ -101,11 +121,13 @@ test('sslmode=require against a server that refuses TLS fails clearly', async ()
         assert.notEqual(caught, null);
         assert.match(caught!.message, /does not support SSL/);
     } finally {
-        await closeServer();
+        await teardown(null, server);
     }
 });
 
 test('sslmode=verify-full against a self-signed cert fails verification', async () => {
+    let server: MockServer | null = null;
+    let caught: Error | null = null;
     try {
         server = await startMockServer({
             authMode: 'trust',
@@ -113,7 +135,6 @@ test('sslmode=verify-full against a self-signed cert fails verification', async 
             tlsCert: cert,
             tlsKey: key,
         });
-        let caught: Error | null = null;
         try {
             await connect({
                 host: '127.0.0.1',
@@ -137,11 +158,13 @@ test('sslmode=verify-full against a self-signed cert fails verification', async 
             'expected a verification-related error, got: ' + caught!.message
         );
     } finally {
-        await closeServer();
+        await teardown(null, server);
     }
 });
 
 test('auth over TLS: SCRAM-SHA-256 after an encrypted upgrade', async () => {
+    let server: MockServer | null = null;
+    let conn: Connection | null = null;
     try {
         server = await startMockServer({
             authMode: 'scram',
@@ -151,7 +174,7 @@ test('auth over TLS: SCRAM-SHA-256 after an encrypted upgrade', async () => {
             tlsCert: cert,
             tlsKey: key,
         });
-        const conn = await connect({
+        conn = await connect({
             host: '127.0.0.1',
             port: server.port,
             user: 'perry',
@@ -160,11 +183,8 @@ test('auth over TLS: SCRAM-SHA-256 after an encrypted upgrade', async () => {
             ssl: { mode: 'require' },
         });
         const r = await conn.query('SELECT 1');
-        assert.equal(r.rows[0][0]!.toString('utf8'), '1');
-        await conn.close();
+        assert.equal(r.rowsRaw[0][0]!.toString('utf8'), '1');
     } finally {
-        await closeServer();
+        await teardown(conn, server);
     }
 });
-
-after(closeServer);
