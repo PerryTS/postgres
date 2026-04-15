@@ -364,12 +364,12 @@ Numbers from `bench/run-all.sh` against a local Postgres 16 (`127.0.0.1:55432`,
 unix socket loopback, no SSH tunnel — RTT removed from the picture).
 50 timed iterations + 5 warmups per workload. p50 wall time:
 
-| workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native | pg (node)  | postgres.js (node) |
-| ------------ | -------------------- | ------------------- | ---------------------------- | ---------- | ------------------ |
-| `SELECT 1`   | 84µs                 | 136µs               | 2.5 ms                       | 126µs      | 89µs               |
-| param 1-row  | 95µs                 | 162µs               | 3 ms                         | 171µs      | 163µs              |
-| 1000 × 20    | 3.6 ms               | 3.5 ms              | 22 ms (1 iter)               | 2.7 ms     | 3.1 ms             |
-| 10000 × 20   | 39.5 ms              | 34.5 ms             | (skip)                       | 23 ms      | 30 ms              |
+| workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native | pg (node)  | postgres.js (node) | tokio-postgres (rust) |
+| ------------ | -------------------- | ------------------- | ---------------------------- | ---------- | ------------------ | --------------------- |
+| `SELECT 1`   | 56µs                 | 122µs               | 3 ms                         | 72µs       | 58µs               | **35µs**              |
+| param 1-row  | 101µs                | 123µs               | 2.5 ms                       | 71µs       | 126µs              | **35µs**              |
+| 1000 × 20    | 3.5 ms               | 3.4 ms              | 23 ms (1 iter)               | **2.5 ms** | 2.8 ms             | 2.75 ms               |
+| 10000 × 20   | 34.9 ms              | 32.5 ms             | (skip)                       | **20.3 ms**| 27.4 ms            | 26.7 ms               |
 
 Notes:
 
@@ -384,6 +384,15 @@ Notes:
   than `pg` (some parsing) and same reason it's faster than us (less
   parsing). We're within ~1.1–1.3× of it on bulk results — typically
   faster on Bun, slightly slower on Node.
+- **`tokio-postgres` (Rust release build with `rust_decimal`)** is in
+  the same range as `postgres.js` on bulk results: 26.7 ms on
+  10000×20 vs our 34.9 ms (Node) / 32.5 ms (Bun). The bench reads
+  every cell into an owned `i64` / `String` / `Decimal` / `bool` so
+  the lazy `row.get<T>` path doesn't make Rust look unfairly fast.
+  On tiny queries Rust wins by a wide margin (35µs vs ~60µs) because
+  there's no V8 JIT warm-up tax. Bulk decoding, where most consumers
+  live, is dominated by the codec choices — language matters less
+  than what you parse into.
 - **Perry-native** has a constant ~3 ms per query overhead vs ~100µs
   on the JS hosts — that's the AOT runtime's promise / async / FFI
   per-call cost rather than anything driver-level. The 1000×20 result
@@ -393,9 +402,12 @@ Notes:
   iteration; tracked at [PerryTS/perry#35](https://github.com/PerryTS/perry/issues/35).
   10000×20 OOMs on Perry until that lands.
 
-Reproduce: `bench/run-all.sh` after `npm install` inside `bench/` and
-either pointing `PGHOST` / `PGPORT` etc. at any Postgres or starting
-the local one in the same shape (`postgres -p 55432`).
+Reproduce: `bench/run-all.sh` after `npm install` inside `bench/`
+(plus `cargo` on PATH for the Rust runner) and either pointing
+`PGHOST` / `PGPORT` etc. at any Postgres or starting the local one
+in the same shape (`postgres -p 55432`). The script captures raw
+output to `bench/results/all.txt` and a sorted summary to
+`bench/results/summary.md`.
 
 ## Testing
 

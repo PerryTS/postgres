@@ -78,16 +78,17 @@ export const DEFAULT_WARMUP = 5;
 /**
  * Per-host iteration overrides. Empty by default; populate when a
  * specific host can't sustain the default iteration count for a
- * workload (e.g. a known runtime bug). Always treat the override as a
- * temporary measure tied to an upstream issue.
+ * workload (e.g. a known runtime bug).
  *
- * Perry's GC fix in v0.5.25 (PerryTS/perry#34) bounded the bigint-heavy
- * malloc case but the wrapper-allocation case in row decode still
- * leaks one bullet per cell — the 1k×20 workload silently exits 0
- * mid-loop after iter 2, the 10k×20 workload dies on iter 0 (tracked
- * at PerryTS/perry#35). Until that lands, Perry runs medium once
- * (representative single-shot wall time) and skips large entirely.
- * The 1-row workloads loop normally.
+ * Perry's GC fixes in v0.5.25 / v0.5.26 (PerryTS/perry#34 + #35)
+ * unblocked the previous failure modes (silent zero-exit, crashes
+ * tied to `net.Socket` listener closures freed by an in-decode
+ * sweep). A separate residual issue still caps the bigint-heavy
+ * 1k-row workload to one iteration after the small workloads finish
+ * — the second call to medium silently exits 0. The 10k×20 workload
+ * still OOMs on iter 0. Until that is investigated upstream, Perry
+ * runs medium once (representative single-shot wall time) and skips
+ * large entirely.
  */
 export const PERRY_ITERATIONS_OVERRIDE = new Map<string, number>([
     ['medium-1k-x-20', 1],

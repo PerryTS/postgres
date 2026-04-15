@@ -67,6 +67,18 @@ run "pg on Node" node --import tsx "${BENCH}/bench-pg.ts"
 # 5. postgres.js on Node
 run "postgres.js on Node" node --import tsx "${BENCH}/bench-postgres-js.ts"
 
+# 6. tokio-postgres (Rust). Build only if cargo is on PATH; runs the
+# release binary so optimisation level matches the JS hot paths.
+if command -v cargo >/dev/null 2>&1; then
+    if (cd "${BENCH}/bench-rust" && cargo build --release --quiet) >> "${ALL}" 2>&1; then
+        run "tokio-postgres (Rust release)" "${BENCH}/bench-rust/target/release/bench-rust"
+    else
+        echo "▸ tokio-postgres (Rust release) — build FAILED" | tee -a "${ALL}"
+    fi
+else
+    echo "▸ tokio-postgres (Rust release) — SKIPPED (cargo not on PATH)" | tee -a "${ALL}"
+fi
+
 # Build the comparison table from the captured output. The grep keeps
 # only lines that look like data rows (start with the driver label
 # followed by a workload name), so the noise from compile output and
@@ -80,7 +92,7 @@ SUMMARY="${OUT}/summary.md"
     echo "PG: \`${PGHOST:-127.0.0.1}:${PGPORT:-5432}/${PGDATABASE:-perch_test}\`"
     echo ""
     echo '```'
-    grep -E '^(@perry/postgres|pg |postgres.js)' "${ALL}" || true
+    grep -E '^(@perry/postgres|pg |postgres.js|tokio-postgres)' "${ALL}" || true
     echo '```'
 } > "${SUMMARY}"
 
