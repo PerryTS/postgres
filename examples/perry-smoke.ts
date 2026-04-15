@@ -22,7 +22,7 @@
 // the explicit type, Perry doesn't propagate the Promise<Connection> return
 // of `connect` through the `await` and dispatches `conn.query` via the
 // generic runtime path, which bypasses the method body.
-import { connect, Connection } from '../src';
+import { connect, Connection, PgError } from '../src';
 
 function cellStr(v: unknown): string {
     if (v === null) {
@@ -76,16 +76,12 @@ async function main(): Promise<void> {
     printRows(r3);
 
     // ── Error path: bad SQL should reject with a PgError ──
-    //
-    // Perry-native note: `instanceof PgError` returns false even when the
-    // thrown value is a PgError, because the imported class stub's runtime
-    // class id doesn't match the id stamped on the instance by the source
-    // module's constructor. Duck-type on `err.name === 'PgError'` (or
-    // inspect `err.code`) until that's fixed in Perry.
     let caught: string = '';
+    let isPgErr: boolean = false;
     try {
         await conn.query('SELECT * FROM no_such_table_xyz');
     } catch (e) {
+        isPgErr = e instanceof PgError;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pg = e as any;
         if (pg !== null && pg !== undefined && pg.name === 'PgError') {
@@ -94,7 +90,7 @@ async function main(): Promise<void> {
             caught = 'non-pg-error';
         }
     }
-    console.log('perry-smoke: error caught=' + caught);
+    console.log('perry-smoke: error caught=' + caught + ' instanceof=' + (isPgErr ? 'true' : 'false'));
 
     // ── Transaction: BEGIN / query / COMMIT ──
     await conn.query('BEGIN');
