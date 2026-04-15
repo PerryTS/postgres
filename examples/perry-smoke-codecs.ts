@@ -34,6 +34,38 @@ function repr(v: unknown): string {
     if (v === undefined) {
         return 'undefined';
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const a = v as any;
+    if (typeof v === 'object') {
+        // Arrays — recurse element-by-element.
+        if (Array.isArray(v)) {
+            const parts: string[] = [];
+            for (let i = 0; i < v.length; i++) {
+                parts.push(repr((v as unknown[])[i]));
+            }
+            return '[' + parts.join(',') + ']';
+        }
+        // Typed wrappers used by the codec layer. We deliberately read
+        // the underlying string field directly rather than calling
+        // `.toString()` — Perry's runtime doesn't always dispatch
+        // `.toString()` on values typed as `unknown`/`any` to the
+        // class-defined override; it falls through to the default
+        // Object.prototype.toString and we get '[object Object]'.
+        // Field names by codec output type:
+        //   PgDate                                 → .value
+        //   PgTime / PgTimestamp / PgInterval     → .raw
+        //   Decimal                                → ._s
+        if (typeof a.value === 'string') {
+            return a.value;
+        }
+        if (typeof a.raw === 'string') {
+            return a.raw;
+        }
+        if (typeof a._s === 'string') {
+            return a._s;
+        }
+        return JSON.stringify(v);
+    }
     return String(v);
 }
 
@@ -139,11 +171,17 @@ async function main(): Promise<void> {
     check('text[]   ', JSON.stringify(r2row[2]), '["a","b,c","d\\"e"]');
     // uuid[] elements are strings (uuid codec returns strings)
     check('uuid[]   ', JSON.stringify(r2row[3]), '["11112222-3333-4444-5555-666677778888"]');
-    // date[] elements are PgDate objects with .value — JSON.stringify hits toJSON?
-    // Easier: format manually.
+    // date[] elements are PgDate objects with .value. We deliberately
+    // read the field directly — `.toString()` on an array element typed
+    // as `unknown` doesn't dispatch through the codec's class method
+    // on Perry. Reaching for `.value` exercises the data path that
+    // matters: that the codec produced PgDate instances with the
+    // canonical text in place.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dArr = r2row[4] as any[];
-    const dStr = dArr.length === 2 ? (dArr[0].toString() + ',' + dArr[1].toString()) : 'wrong-length';
+    const dStr = dArr.length === 2
+        ? (dArr[0].value + ',' + dArr[1].value)
+        : 'wrong-length';
     check('date[]   ', dStr, '2023-08-15,2024-01-01');
 
     await conn.close();

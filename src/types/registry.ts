@@ -33,28 +33,17 @@ export interface Codec<T = unknown> {
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 
-// Parallel arrays instead of `Map<number, Codec>`: under Perry, a
-// `new Map()` instance backing a module-level `const` ends up
-// per-importer rather than singleton — `Map.set` calls from one module
-// don't surface in `Map.get` calls from another, while primitive
-// module-level state (numbers, plain arrays) does stay shared. So we
-// use two parallel arrays and a linear `indexOf` lookup. The registry
-// has ~50 entries, so the cost is irrelevant.
-// Codec registry. Linear scan over ~50 entries (no Map — Map instances
-// from `new Map()` don't reliably round-trip across module boundaries
-// under Perry).
+// Codec registry — parallel arrays + linear `indexOf`. ~50 entries, so
+// the cost vs `Map<number, Codec>` is irrelevant.
 //
-// KNOWN PERRY LIMITATION: even with module-level arrays, `registerType()`
-// calls made from one importer of this file don't surface in `getCodec()`
-// calls made from another importer. The Perry AOT compiler currently
-// gives every importer its own private copy of any module-level
-// declaration (heap objects AND primitives in some cases). On Node/Bun
-// this works as expected — the registry is a process-wide singleton.
-// On Perry-native, only OIDs whose raw postgres text representation
-// matches the codec's decoded form happen to "work" because the
-// fallback (`buf.toString('utf8')`) coincides with the right output.
-// The proper fix lives in the Perry compiler (canonicalise module
-// identity before consulting the module cache).
+// History: this file used to use `new Map()` until the per-importer
+// module-instance bug at PerryTS/perry#32 made it unreliable on the
+// AOT target (each importer of `registry.ts` got its own copy, so
+// `Map.set` from one importer never showed up in `Map.get` from
+// another). That's fixed in Perry ≥ 0.5.23, so the Map could come
+// back; we keep the arrays because they're simpler, equally fast at
+// this size, and don't paper over a real risk if module identity ever
+// regresses.
 const REGISTRY_OIDS: number[] = [];
 const REGISTRY_CODECS: Codec<unknown>[] = [];
 
