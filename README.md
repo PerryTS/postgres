@@ -85,7 +85,7 @@ That's a non-starter for two use cases we care about:
 
 | Runtime          | Status   | Notes                                                                                                                                 |
 | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Perry** (AOT → native) ≥ 0.5.23 | supported | Same source, compiled via LLVM. TLS upgrade uses `socket.upgradeToTLS` from perry-stdlib. No JS runtime at execution time. The only known gap is `int8` (returns `NaN` because Perry's `bigint` arithmetic is unimplemented — see [PerryTS/perry#33](https://github.com/PerryTS/perry/issues/33)); every other codec round-trips. |
+| **Perry** (AOT → native) ≥ 0.5.24 | supported | Same source, compiled via LLVM. TLS upgrade uses `socket.upgradeToTLS` from perry-stdlib. No JS runtime at execution time. Every built-in codec round-trips correctly (verified end-to-end against real Postgres via `examples/perry-smoke-codecs.ts`). |
 | **Node.js ≥ 22** | supported | Uses `node:net`, `node:tls`, `node:crypto`, `Buffer`.                                                                                 |
 | **Bun ≥ 1.3**    | supported | Fully works except a known Bun bug in `tls.connect({socket})` for in-place upgrade; the corresponding tests run on Node via `npm run test:tls:node`. |
 
@@ -190,21 +190,14 @@ round-trip through `Buffer`.
 | `date`, `time`, `timetz`, `timestamp`, `timestamptz`, `interval` | typed objects with `.toString()`, `.toDate()`, microsecond fields      |
 | 1-d arrays of any of the above                        | `Array<T>` with `null` for SQL NULLs                                   |
 
-Perry-native caveats:
-
-- `int8` returns `NaN` instead of a `bigint` — Perry's `bigint`
-  arithmetic and `BigInt()` constructor are unimplemented in 0.5.23,
-  so the driver's parser can't construct a value larger than
-  `Number.MAX_SAFE_INTEGER`. Tracked at
-  [PerryTS/perry#33](https://github.com/PerryTS/perry/issues/33).
-- Wrapper types (`Decimal`, `PgDate`, `PgTime`, `PgTimestamp`,
-  `PgInterval`) decode correctly but `String(value)` /
-  `value.toString()` doesn't always dispatch to the wrapper's
-  override on Perry. Read the underlying field directly
-  (`v.value` for the date/time/interval family, `v._s` for `Decimal`,
-  `v.raw` on `PgTime` / `PgTimestamp` / `PgInterval`) — that's what
-  `examples/perry-smoke-codecs.ts` does. On Node and Bun, `toString()`
-  works as expected.
+Perry-native caveat: wrapper types (`Decimal`, `PgDate`, `PgTime`,
+`PgTimestamp`, `PgInterval`) decode correctly but `String(value)` /
+`value.toString()` currently doesn't dispatch to the wrapper's
+overridden method on Perry. Read the underlying field directly
+(`v.value` for `PgDate`, `v.raw` on `PgTime` / `PgTimestamp` /
+`PgInterval`, `v._s` for `Decimal`) — that's what
+`examples/perry-smoke-codecs.ts` does. On Node and Bun, `toString()`
+works as expected.
 
 ```ts
 import { Decimal } from '@perry/postgres';
