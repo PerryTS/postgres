@@ -366,10 +366,10 @@ unix socket loopback, no SSH tunnel — RTT removed from the picture).
 
 | workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native | pg (node)  | postgres.js (node) |
 | ------------ | -------------------- | ------------------- | ---------------------------- | ---------- | ------------------ |
-| `SELECT 1`   | 93µs                 | 279µs               | 3 ms                         | 117µs      | 77µs               |
-| param 1-row  | 124µs                | 264µs               | 3 ms                         | 147µs      | 144µs              |
-| 1000 × 20    | 4.6 ms               | 5.1 ms              | 23 ms (1 iter)               | 2.5 ms     | 3.0 ms             |
-| 10000 × 20   | 46.6 ms              | 39.8 ms             | (skip)                       | 20.9 ms    | 29.0 ms            |
+| `SELECT 1`   | 84µs                 | 136µs               | 2.5 ms                       | 126µs      | 89µs               |
+| param 1-row  | 95µs                 | 162µs               | 3 ms                         | 171µs      | 163µs              |
+| 1000 × 20    | 3.6 ms               | 3.5 ms              | 22 ms (1 iter)               | 2.7 ms     | 3.1 ms             |
+| 10000 × 20   | 39.5 ms              | 34.5 ms             | (skip)                       | 23 ms      | 30 ms              |
 
 Notes:
 
@@ -382,7 +382,8 @@ Notes:
   overhead.
 - **`postgres.js`** sits between us and `pg`; same reason it's slower
   than `pg` (some parsing) and same reason it's faster than us (less
-  parsing). We're within ~1.5–1.7× of it on bulk results.
+  parsing). We're within ~1.1–1.3× of it on bulk results — typically
+  faster on Bun, slightly slower on Node.
 - **Perry-native** has a constant ~3 ms per query overhead vs ~100µs
   on the JS hosts — that's the AOT runtime's promise / async / FFI
   per-call cost rather than anything driver-level. The 1000×20 result

@@ -844,6 +844,59 @@ function handleReadyForQuery(id: number, payload: Buffer): void {
     }
 }
 
+/**
+ * Cache of per-shape row constructors. Key = field-name signature
+ * (newline-joined); value = a `Row(values)` constructor that V8/JSC
+ * sees as a stable hidden class. Built ONCE per unique result shape
+ * via `new Function`, then reused across queries that return the
+ * same column set. A single hot SELECT against the same table
+ * returns the same shape every call → ~zero cache miss after the
+ * first query.
+ *
+ * Generated bodies look like:
+ *
+ *     function Row(v) {
+ *         this["id"] = v[0];
+ *         this["name"] = v[1];
+ *         ...
+ *     }
+ *
+ * Bracket-notation with a string literal is V8-friendly: at parse
+ * time the engine sees a known property name and lays out the
+ * hidden class up front, so the assignments don't transition
+ * shapes per row. JSON.stringify-ing the column name handles
+ * quote / backslash escaping safely.
+ */
+const ROW_CTOR_CACHE = new Map<string, new (v: unknown[]) => Record<string, unknown>>();
+
+/** True when running under Node.js or Bun. Mirror of net-socket.ts;
+ *  duplicated here to keep the function pure / inline-friendly. */
+function hostHasNewFunction(): boolean {
+    const g = globalThis as { process?: { versions?: { node?: string } } };
+    return g.process !== undefined
+        && g.process.versions !== undefined
+        && typeof g.process.versions.node === 'string';
+}
+
+function getRowCtor(names: string[]): (new (v: unknown[]) => Record<string, unknown>) | null {
+    if (!hostHasNewFunction()) {
+        return null;
+    }
+    const key = names.join('\n');
+    const cached = ROW_CTOR_CACHE.get(key);
+    if (cached !== undefined) {
+        return cached;
+    }
+    let body = '';
+    for (let i = 0; i < names.length; i++) {
+        body += 'this[' + JSON.stringify(names[i]) + '] = v[' + i + '];';
+    }
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-explicit-any
+    const ctor = new Function('v', body) as any;
+    ROW_CTOR_CACHE.set(key, ctor);
+    return ctor;
+}
+
 /** Build the public `QueryResult` shape from raw accumulated rows.
  *
  *  Decoder + field metadata is hoisted out of the per-row loop:
@@ -854,7 +907,14 @@ function handleReadyForQuery(id: number, payload: Buffer): void {
  *  Each column gets a dedicated `(buf) => unknown` thunk that closes
  *  over the codec it picked. The two flavors (binary vs text) and the
  *  unknown-OID raw-text fallback are baked in at thunk-construction
- *  time so the per-cell hot path is just a function call. */
+ *  time so the per-cell hot path is just a function call.
+ *
+ *  On Node / Bun we generate a per-shape row constructor (cached) so
+ *  every row instance uses the same hidden class — V8/JSC then optimises
+ *  property writes and reads aggressively, ~halving build time on bulk
+ *  results. Perry's AOT can't `new Function`, so it falls back to
+ *  building object literals via a plain `{}` + bracket-key writes.
+ */
 function buildQueryResult(
     fields: FieldDescription[],
     rowsRaw: RawRow[],
@@ -873,20 +933,26 @@ function buildQueryResult(
         decoders[j] = pickDecoder(f.typeOid, f.formatCode);
     }
 
+    const RowCtor = getRowCtor(names);
     const rowsArray: unknown[][] = new Array(nrows);
     const rowsObj: Record<string, unknown>[] = new Array(nrows);
     for (let i = 0; i < nrows; i++) {
         const raw = rowsRaw[i];
         const arr: unknown[] = new Array(ncols);
-        const obj: Record<string, unknown> = {};
         for (let j = 0; j < ncols; j++) {
             const cell = raw[j];
-            const value = cell === null ? null : decoders[j](cell);
-            arr[j] = value;
-            obj[names[j]] = value;
+            arr[j] = cell === null ? null : decoders[j](cell);
         }
         rowsArray[i] = arr;
-        rowsObj[i] = obj;
+        if (RowCtor !== null) {
+            rowsObj[i] = new RowCtor(arr);
+        } else {
+            const obj: Record<string, unknown> = {};
+            for (let j = 0; j < ncols; j++) {
+                obj[names[j]] = arr[j];
+            }
+            rowsObj[i] = obj;
+        }
     }
     return {
         fields: fields,
