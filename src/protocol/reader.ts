@@ -29,8 +29,6 @@ export class MessageReader {
             if (frame === null) {
                 break;
             }
-            // Defensive copy so callers don't hold a subarray of our
-            // internal buffer (which will be replaced on the next feed).
             out.push({
                 type: frame.type,
                 payload: Buffer.from(frame.payload),

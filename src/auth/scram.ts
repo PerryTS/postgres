@@ -25,7 +25,13 @@
 // Crypto primitives come from `crypto.{createHash,createHmac,pbkdf2Sync,randomBytes}`,
 // all of which are available on both Perry's stdlib and Node.
 
-import { createHash, createHmac, pbkdf2Sync, randomBytes } from 'crypto';
+// Perry's crypto codegen only recognizes the namespace-import form
+// (`crypto.crypto.createHash(...)`) as the target of its chain-collapse and
+// `.digest()` Buffer-return routing. Named imports go through a
+// different path that returns a hex string even when we want raw bytes.
+// Using `import * as crypto` keeps the one source file on both Node and
+// Perry without a fork.
+import * as crypto from 'crypto';
 
 export interface ScramState {
     mechanism: 'SCRAM-SHA-256';
@@ -62,7 +68,7 @@ export function scramInit(
     }
     // 18 bytes of randomness → 24 base64 characters. Matches libpq's
     // default and fits comfortably under the 255-char server-side cap.
-    const clientNonce = randomBytes(18).toString('base64');
+    const clientNonce = crypto.randomBytes(18).toString('base64');
     const clientFirstBare = 'n=' + saslName(username) + ',r=' + clientNonce;
 
     // The `gs2-header` is "n,," — no channel binding, no authzid. Base64
@@ -122,7 +128,7 @@ export function scramContinue(state: ScramState, serverFirst: Buffer): Buffer {
     //   ClientProof     = ClientKey XOR ClientSignature
     //   ServerKey       = HMAC-SHA-256(SaltedPassword, "Server Key")
     //   ServerSignature = HMAC-SHA-256(ServerKey, AuthMessage)
-    const saltedPassword = pbkdf2Sync(state.password, salt, iter, 32, 'sha256');
+    const saltedPassword = crypto.pbkdf2Sync(state.password, salt, iter, 32, 'sha256');
     const clientKey = hmacSha256(saltedPassword, Buffer.from('Client Key', 'utf8'));
     const storedKey = sha256(clientKey);
 
@@ -159,26 +165,49 @@ export function scramVerifyServerFinal(state: ScramState, serverFinal: Buffer): 
     if (state.serverSignatureB64 === null) {
         throw new Error('scramVerifyServerFinal called before scramContinue');
     }
-    if (verifier !== state.serverSignatureB64) {
+    if (!stringEqual(verifier, state.serverSignatureB64)) {
         throw new Error('server signature verification failed');
     }
+}
+
+/**
+ * Explicit byte-by-byte string equality. Perry's `===` on strings produced
+ * by different origins (Map.get of a substring vs a toString('base64')
+ * result) doesn't always collapse to value equality — the comparison
+ * falls through to pointer identity and returns false even when the
+ * UTF-16 contents are identical. Node/bun honor value equality directly,
+ * so this helper is a no-op on those runtimes.
+ */
+function stringEqual(a: string, b: string): boolean {
+    if (a.length !== b.length) {
+        return false;
+    }
+    for (let i = 0; i < a.length; i++) {
+        if (a.charCodeAt(i) !== b.charCodeAt(i)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
 function sha256(data: Buffer): Buffer {
-    return createHash('sha256').update(data).digest();
+    return crypto.createHash('sha256').update(data).digest();
 }
 
 function hmacSha256(key: Buffer, data: Buffer): Buffer {
-    return createHmac('sha256', key).update(data).digest();
+    return crypto.createHmac('sha256', key).update(data).digest();
 }
 
 function xorBuffers(a: Buffer, b: Buffer): Buffer {
+    // Use readUInt8/writeUInt8 rather than bracket indexing: Perry's
+    // native codegen doesn't lower `buf[i]` for Buffer receivers (reads
+    // as undefined, writes are no-ops).
     const len = a.length < b.length ? a.length : b.length;
     const out = Buffer.alloc(len);
     for (let i = 0; i < len; i++) {
-        out[i] = a[i] ^ b[i];
+        out.writeUInt8(a.readUInt8(i) ^ b.readUInt8(i), i);
     }
     return out;
 }

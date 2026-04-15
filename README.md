@@ -1,12 +1,23 @@
 # @perry/postgres
 
-Pure-TypeScript Postgres wire-protocol driver. Runs on **Perry** (compiled to
-a native binary, no JS runtime) and on **Node.js** / **Bun** unchanged.
+A pure-TypeScript Postgres driver that speaks the wire protocol directly —
+no `libpq`, no native addons, no runtime FFI. It runs unchanged on
+**Node.js**, **Bun**, and [**Perry**](https://github.com/PerryTS/perry),
+where the same TypeScript source is **ahead-of-time compiled to a native
+binary via LLVM** — giving you a real standalone executable that talks to
+Postgres with no JS runtime attached.
+
+> Perry is a TypeScript-to-native compiler: it lowers a strict subset of TS
+> through LLVM into a statically-linked binary. `@perry/postgres` is the
+> reference driver used by [**Tusk**](https://github.com/PerryTS) (the
+> Perry-native Postgres GUI), and the showcase for Perry's systems
+> capabilities — every socket read, TLS handshake, and crypto op goes
+> through perry-stdlib rather than a Rust or C shim.
 
 ```bash
 bun add @perry/postgres
-# or
 npm install @perry/postgres
+pnpm add @perry/postgres
 ```
 
 ```ts
@@ -17,34 +28,71 @@ const conn = await connect('postgres://alice:secret@db.example.com:5432/myapp');
 const { rows } = await conn.query<{ id: number; name: string }>(
   sql`SELECT id, name FROM users WHERE active = ${true}`
 );
-for (const user of rows) {
-  console.log(user.id, user.name);
-}
+for (const user of rows) console.log(user.id, user.name);
 
 await conn.close();
 ```
 
+## Why another Postgres driver?
+
+Most Node drivers wrap `libpq` or ship a platform-specific `.node` addon.
+That's a non-starter for two use cases we care about:
+
+1. **Compiling to a native binary with Perry.** Perry produces a
+   statically-linked executable via LLVM; there is no Node runtime at
+   execution time, so any driver that assumes V8 / N-API / `require('pg-native')`
+   is unusable. `@perry/postgres` uses only APIs that exist on both
+   Perry's stdlib and Node core (`Buffer`, `net.Socket`, `crypto.*`,
+   `tls.connect`), so the same TypeScript source runs on a JS runtime
+   *and* compiles to a native binary.
+
+2. **Driving a GUI** (Tusk). ORMs lose column metadata and coerce
+   types for ergonomics. A database client has to render `numeric(30,8)`
+   exactly, surface `attnum` / `tableOid` so users can edit-in-place, and
+   expose `NOTICE`, `ParameterStatus`, backend PIDs, and structured
+   `ErrorResponse` fields. This driver returns raw rows **plus** full
+   column descriptors, and never silently coerces.
+
 ## Features
 
-- Postgres wire protocol v3 — works against every supported server (13–17 in
-  CI, but the protocol itself has been stable since 7.4)
-- **SCRAM-SHA-256**, MD5, cleartext, trust authentication
-- **TLS** with `sslmode=disable | require | verify-ca | verify-full`
-- **Simple** and **extended** query protocols (Parse / Bind / Execute / Sync)
-- **20 type codecs** — integers, floats, `numeric` (precision-preserving),
-  booleans, text family, `bytea`, `uuid`, `json`/`jsonb`, all date/time types,
-  1-d arrays — text and binary formats
-- Structured `PgError` with every documented field — SQLSTATE, position,
-  detail, hint, schema/table/column/constraint, …
-- `NOTICE`, `ParameterStatus`, `LISTEN/NOTIFY` events
-- **Cancel protocol** on a separate fresh connection (handles the
-  Postgres-style PID + secret key handshake)
-- **Connection pool**, **transactions**, `sql` tagged-template helper
-- libpq URLs and PG\* environment variables — works with `DATABASE_URL`
-- **Zero native dependencies** when running on Node.js / Bun. The driver is
-  pure TypeScript on top of `node:net`, `node:tls`, `node:crypto`, `Buffer`
-- **No `numeric → float` lossy coercion** — values land in a `Decimal` wrapper
-  that round-trips precisely
+- **Wire protocol v3** — Postgres 13 through 17 in CI; the protocol
+  itself has been stable since 7.4.
+- **Authentication** — SCRAM-SHA-256, MD5, cleartext, trust.
+- **TLS** — `sslmode=disable | require | verify-ca | verify-full`, mid-stream
+  upgrade handled transparently on both Perry and Node.
+- **Simple and extended query** — `Query`, `Parse` / `Bind` / `Execute` / `Sync`,
+  portals, `Describe`.
+- **20 type codecs** — integers, floats, `numeric` (precision-preserving
+  `Decimal`), booleans, text family, `bytea`, `uuid`, `json`, `jsonb`,
+  the full date/time family with microsecond precision, and 1-d arrays of
+  any of the above — both text and binary formats.
+- **Structured `PgError`** — every documented `ErrorResponse` field:
+  SQLSTATE, position, detail, hint, schema/table/column/constraint.
+- **Cancel protocol** — fresh socket + PID/secret handshake; the connection
+  remains reusable afterwards.
+- **Events** — `NOTICE`, `ParameterStatus`, `LISTEN` / `NOTIFY`.
+- **Connection pool**, **transactions**, and a `sql` tagged-template helper.
+- **libpq URLs and `PG*` env vars** — `DATABASE_URL`, `PGHOST`, `PGPORT`,
+  `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `PGSSLMODE`, `PGAPPNAME`,
+  `PGCONNECT_TIMEOUT` all work out of the box.
+- **Zero native dependencies**. Pure TypeScript over `Buffer`, `node:net`,
+  `node:tls`, and `node:crypto`. Nothing to rebuild per platform.
+- **No lossy `numeric` coercion**. Values land in a `Decimal` wrapper that
+  round-trips exact string form — none of the `9999999999.99 → 9999999999.989999`
+  drift common to float-backed drivers.
+
+## Runtime targets
+
+| Runtime          | Status   | Notes                                                                                                                                 |
+| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Perry** (AOT → native) | supported | Same source, compiled via LLVM. TLS upgrade uses `socket.upgradeToTLS` from perry-stdlib. No JS runtime at execution time. |
+| **Node.js ≥ 22** | supported | Uses `node:net`, `node:tls`, `node:crypto`, `Buffer`.                                                                                 |
+| **Bun ≥ 1.3**    | supported | Fully works except a known Bun bug in `tls.connect({socket})` for in-place upgrade; the corresponding tests run on Node via `npm run test:tls:node`. |
+
+The only API divergence across these runtimes is the mid-stream TLS upgrade.
+It's isolated in [`src/transport/upgrade-tls.ts`](./src/transport/upgrade-tls.ts)
+— a ~15-line feature-detect. Nothing else in the driver knows or cares
+which runtime it's on.
 
 ## Quickstart
 
@@ -53,7 +101,7 @@ await conn.close();
 ```ts
 import { connect } from '@perry/postgres';
 
-// 1. Connection URL (libpq format).
+// 1. libpq-format URL.
 const conn = await connect('postgres://user:pw@host:5432/db?sslmode=verify-full');
 
 // 2. Explicit options.
@@ -68,21 +116,22 @@ const conn = await connect({
   connectTimeoutMs: 10_000,
 });
 
-// 3. URL with overrides.
+// 3. URL with targeted overrides.
 const conn = await connect({
   url: process.env.DATABASE_URL!,
-  password: process.env.DB_PASSWORD,  // overrides the URL's password
+  password: process.env.DB_PASSWORD, // overrides the URL's password
 });
 
-// 4. Bare-options + env. PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE/
-//    PGSSLMODE/PGAPPNAME/PGCONNECT_TIMEOUT are read when fields are missing.
+// 4. Bare options + env vars.
+//    PGHOST / PGPORT / PGUSER / PGPASSWORD / PGDATABASE /
+//    PGSSLMODE / PGAPPNAME / PGCONNECT_TIMEOUT fill in missing fields.
 const conn = await connect({ user: 'alice' });
 ```
 
 ### Queries
 
 ```ts
-// Simple query (any DDL / SET / multi-statement text).
+// Simple query — any DDL / SET / multi-statement text.
 await conn.query('CREATE TEMP TABLE t(id int, name text)');
 
 // Parameterized — extended protocol.
@@ -103,8 +152,7 @@ const r = await conn.query(sql`
 const where = active ? sql`WHERE active` : sql``;
 const r = await conn.query(sql`SELECT * FROM users ${where} LIMIT ${10}`);
 
-// Dynamic identifiers (the only safe escape hatch for things Postgres
-// can't parameterize). Use ONLY for caller-controlled values, never user input.
+// Dynamic identifiers. ONLY for caller-controlled values — never user input.
 import { raw } from '@perry/postgres';
 await conn.query(sql`SELECT * FROM ${raw(tableName)} WHERE id = ${id}`);
 ```
@@ -116,29 +164,31 @@ const r = await conn.query('SELECT id, name FROM users');
 
 r.rows;       // [{ id: 1, name: 'alice' }, ...]   ← decoded objects
 r.rowsArray;  // [[1, 'alice'], ...]               ← decoded positional
-r.rowsRaw;    // [[<Buffer>, <Buffer>], ...]       ← raw wire bytes (advanced)
-r.fields;     // [{ name, typeOid, formatCode, ... }, ...]
+r.rowsRaw;    // [[<Buffer>, <Buffer>], ...]       ← raw wire bytes (GUI-grade)
+r.fields;     // [{ name, typeOid, formatCode, tableOid, attnum, typmod, ... }]
 r.command;    // 'SELECT 2'
 r.rowCount;   // 2
 ```
 
-`r.rows` is the obvious shape for application code. `r.rowsRaw` is what the
-Tusk grid uses when it wants to render bytes byte-for-byte.
+`r.rows` is the obvious shape for application code. `r.rowsRaw` is what
+Tusk's grid uses when it wants to render bytes byte-for-byte without a
+round-trip through `Buffer`.
 
 ### Type fidelity
 
-- `int2`, `int4` → `number`
-- `int8` → `bigint`  (always, not `number` — `int8` exceeds `Number.MAX_SAFE_INTEGER`)
-- `float4`, `float8` → `number` (NaN, Infinity, -Infinity supported)
-- `numeric` → `Decimal`  (string-backed wrapper; `.toString()`, `.toNumber()`)
-- `bool` → `boolean`
-- `text` / `varchar` / `bpchar` / `name` → `string`
-- `bytea` → `Buffer` (hex and legacy octal text formats both decoded)
-- `uuid` → canonical lowercase string with dashes
-- `json` / `jsonb` → parsed JS value
-- `date`, `time`, `timetz`, `timestamp`, `timestamptz`, `interval` → typed
-  objects with `.toString()`, `.toDate()`, microsecond-precision fields
-- 1-d arrays of any of the above → `Array<T>` with `null` for SQL NULLs
+| Postgres type                                         | TypeScript value                                                       |
+| ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| `int2`, `int4`                                        | `number`                                                               |
+| `int8`                                                | `bigint` — always. `int8` exceeds `Number.MAX_SAFE_INTEGER`.           |
+| `float4`, `float8`                                    | `number` — `NaN`, `Infinity`, `-Infinity` all round-trip.              |
+| `numeric`                                             | `Decimal` — string-backed; `.toString()`, `.toNumber()`. Exact.        |
+| `bool`                                                | `boolean`                                                              |
+| `text`, `varchar`, `bpchar`, `name`                   | `string`                                                               |
+| `bytea`                                               | `Buffer` — both hex and legacy octal text formats decoded.             |
+| `uuid`                                                | canonical lowercase string with dashes                                 |
+| `json`, `jsonb`                                       | parsed JS value                                                        |
+| `date`, `time`, `timetz`, `timestamp`, `timestamptz`, `interval` | typed objects with `.toString()`, `.toDate()`, microsecond fields      |
+| 1-d arrays of any of the above                        | `Array<T>` with `null` for SQL NULLs                                   |
 
 ```ts
 import { Decimal } from '@perry/postgres';
@@ -151,7 +201,7 @@ String(r.rows[0]['?column?']);              // '99999999999999.99' — exact
 ### Transactions
 
 ```ts
-const result = await conn.transaction(async (tx) => {
+const orderId = await conn.transaction(async (tx) => {
   await tx.query(sql`INSERT INTO orders (user_id) VALUES (${userId})`);
   const r = await tx.query(sql`SELECT currval('orders_id_seq') AS id`);
   return r.rows[0].id;
@@ -174,20 +224,19 @@ const pool = createPool({
 // Acquire + query + release in one call.
 const r = await pool.query(sql`SELECT now()`);
 
-// Multi-statement: take the connection yourself.
+// Multi-statement — borrow the connection yourself.
 await pool.withConnection(async (conn) => {
   await conn.query('SET search_path TO app');
   return conn.query('SELECT * FROM widgets');
 });
 
-// Transactions on the pool.
+// Pooled transaction.
 await pool.transaction(async (tx) => {
-  await tx.query(sql`UPDATE accounts SET balance = balance - ${amount} WHERE id = ${from}`);
-  await tx.query(sql`UPDATE accounts SET balance = balance + ${amount} WHERE id = ${to}`);
+  await tx.query(sql`UPDATE accounts SET balance = balance - ${amt} WHERE id = ${from}`);
+  await tx.query(sql`UPDATE accounts SET balance = balance + ${amt} WHERE id = ${to}`);
 });
 
-// Pool stats / shutdown.
-pool.size();   // { total, idle, waiting }
+pool.size();       // { total, idle, waiting }
 await pool.end();
 ```
 
@@ -203,22 +252,25 @@ try {
   // PgError with code '57014' (query_canceled).
   console.error(e.code, e.message);
 }
-// `conn` is reusable — the protocol restored ReadyForQuery.
+// `conn` is reusable — ReadyForQuery restored.
 ```
 
 ### Errors
 
 ```ts
+import { PgError } from '@perry/postgres';
+
 try {
   await conn.query('SELECT * FROM nope');
 } catch (e) {
   if (e instanceof PgError) {
     e.code;        // '42P01'
     e.severity;    // 'ERROR'
-    e.message;     // 'relation "nope" does not exist — POSITION: 15'
+    e.message;     // 'relation "nope" does not exist'
     e.position;    // '15'
     e.hint;        // ...
     e.detail;      // ...
+    e.schema;      // table / column / constraint fields, etc.
   }
 }
 ```
@@ -235,16 +287,6 @@ conn.on('notification', (n) => {
 });
 ```
 
-### Working with raw bytes
-
-Tusk's grid reaches into `rowsRaw` to render `bytea` cells as hex without
-decoding through Buffer twice. For most applications you'll never need it.
-
-```ts
-const r = await conn.query('SELECT data FROM blobs WHERE id = $1', [1]);
-const cell = r.rowsRaw[0][0];   // Buffer | null
-```
-
 ### Custom type codecs
 
 ```ts
@@ -256,7 +298,7 @@ registerType<{ x: number; y: number }>(POINT_OID, {
   text: {
     decode(buf) {
       const [x, y] = buf.toString().slice(1, -1).split(',').map(Number);
-      return { x, y };
+      return { x: x, y: y };
     },
     encode(v) {
       return Buffer.from(`(${v.x},${v.y})`);
@@ -265,21 +307,61 @@ registerType<{ x: number; y: number }>(POINT_OID, {
 });
 ```
 
-## Compatibility
+## Architecture
 
-- **Node.js** ≥ 22 (uses `Buffer`, `node:net`, `node:tls`, `node:crypto`).
-- **Bun** ≥ 1.3 — fully supported except a known Bun bug in
-  `tls.connect({socket})` that affects only the in-place TLS upgrade
-  on Bun. The driver works; the corresponding integration tests run on
-  Node via `npm run test:tls:node`.
-- **Perry** — yes, that's the point. Same source, no changes; the only
-  divergence is TLS upgrade and it's isolated in `src/transport/upgrade-tls.ts`.
+```
+src/
+├── protocol/      wire framing + message writer/reader
+├── auth/          SCRAM-SHA-256, MD5, cleartext
+├── transport/     net.Socket wrapper + Perry-vs-Node TLS upgrade
+├── types/         OID → codec registry, 20 built-in codecs
+├── error.ts       structured PgError
+├── notice.ts      NoticeResponse parsing
+├── cancel.ts      fresh-socket CancelRequest
+├── url.ts         libpq connection-string parser
+├── env.ts         PG* environment-variable resolver
+├── sql.ts         `sql` tagged template + `raw()` escape hatch
+├── pool.ts        Connection pool
+├── connection.ts  Connection: lifecycle, simple + extended query
+└── index.ts       public barrel exports
+```
+
+### Perry AOT constraints
+
+Every source file respects the subset Perry's compiler can lower to LLVM:
+
+- No `?.` or `??` — use explicit `if (x === undefined)` branching.
+- No `obj[variable]` dynamic key access.
+- No `for...of` over arrays — use `for (let i = 0; i < arr.length; i++)`.
+- No regex — `indexOf` / char-code checks.
+- No `{ key }` shorthand — write `{ key: key }`.
+- No capturing `this.method` in closures — module-level `Map<id, State>`
+  holds connection state, with named module-level handlers.
+
+These read like quirks in a JS runtime, but they are what makes the same
+source compile to a single-binary native executable on Perry.
+
+## Related projects
+
+- **[PerryTS/perry](https://github.com/PerryTS/perry)** — the TypeScript-to-native
+  compiler (LLVM backend) and runtime / stdlib.
+- **[PerryTS](https://github.com/PerryTS)** — Tusk, the Perry-native Postgres
+  GUI that consumes this driver, and the rest of the PerryTS org.
+
+## Testing
+
+```bash
+bun test                   # everything
+bun test tests/unit        # pure unit tests (no DB)
+bun test tests/integration # docker-compose matrix
+npm run test:tls:node      # TLS suite on Node (Bun has a known tls.connect bug)
+```
 
 ## Status
 
-**v0.1.0** — pre-1.0. Surface is stable but not frozen. The driver passes
-the in-process mock-server matrix end-to-end. A real-Postgres CI matrix
-(13/14/15/16/17 via Docker) is the next milestone.
+**v0.2.0** — pre-1.0. The public surface is stable but not frozen. The
+driver passes the in-process mock-server matrix end-to-end. A
+real-Postgres Docker matrix (13 / 14 / 15 / 16 / 17) is the next milestone.
 
 ## License
 

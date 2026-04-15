@@ -42,8 +42,11 @@ export class BufferCursor {
     }
 
     readCString(): string {
+        // Use readUInt8 instead of bracket indexing: Perry's native codegen
+        // doesn't lower `buf[i]` for Buffer receivers — it reads as undefined
+        // and the scan walks off the end.
         let end = this.pos;
-        while (end < this.buf.length && this.buf[end] !== 0) {
+        while (end < this.buf.length && this.buf.readUInt8(end) !== 0) {
             end++;
         }
         if (end >= this.buf.length) {

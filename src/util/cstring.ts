@@ -29,8 +29,11 @@ export function encodeCString(s: string, buf: Buffer, offset: number): number {
  * Throws if no null byte is found within the buffer.
  */
 export function decodeCString(buf: Buffer, offset: number): { value: string; next: number } {
+    // Use readUInt8 instead of `buf[end]`: Perry's native codegen doesn't
+    // lower Buffer bracket indexing; it reads as undefined, the comparison
+    // is always truthy, and the scan walks off the end.
     let end = offset;
-    while (end < buf.length && buf[end] !== 0) {
+    while (end < buf.length && buf.readUInt8(end) !== 0) {
         end++;
     }
     if (end >= buf.length) {

@@ -174,7 +174,10 @@ interface ConnState {
     status: ConnectionStatus;
     backendPid: number;
     secretKey: number;
-    paramStatus: Record<string, string>;
+    // `Map` rather than `Record<string, string>`: Perry's native codegen
+    // doesn't lower dynamic bracket-indexing (`obj[name]`) on plain objects,
+    // so every lookup and write needs to go through Map's method dispatch.
+    paramStatus: Map<string, string>;
     txnStatus: TxnStatus;
     startupGate: StartupGate | null;
     pending: PendingQuery | null;
@@ -218,7 +221,7 @@ export class Connection {
         if (st === undefined) {
             return undefined;
         }
-        return st.paramStatus[name];
+        return st.paramStatus.get(name);
     }
 
     /**
@@ -241,7 +244,13 @@ export class Connection {
         paramOids?: number[]
     ): Promise<QueryResult<T>> {
         let text: string;
-        let effectiveParams: unknown[] | undefined = params;
+        // Perry's native codegen surfaces omitted optional parameters as a
+        // nanbox-undefined that `typeof` reports as `"number"` and `===
+        // undefined` treats as non-undefined. Check `typeof === 'object'`
+        // (arrays are objects) to tell a real params array apart from the
+        // missing-arg sentinel; this is also a no-op on Node/bun.
+        const paramsProvided = typeof params === 'object';
+        let effectiveParams: unknown[] | undefined = paramsProvided ? params : undefined;
         if (isSqlQuery(sql)) {
             text = sql.text;
             if (effectiveParams === undefined) {
@@ -375,7 +384,7 @@ export function connect(
             status: 'connecting',
             backendPid: 0,
             secretKey: 0,
-            paramStatus: {},
+            paramStatus: new Map<string, string>(),
             txnStatus: 'idle',
             startupGate: { resolve: resolve, reject: reject, settled: false },
             pending: null,
@@ -433,7 +442,6 @@ export function connect(
 function onSocketConnect(id: number): void {
     const st = CONN_STATES.get(id);
     if (st === undefined) {
-        if (process.env.PERRY_PG_TRACE !== undefined) console.log('[pg] no state for id=' + id);
         return;
     }
     if (st.opts.ssl !== undefined && st.opts.ssl.mode !== 'disable') {
@@ -478,7 +486,6 @@ function onSocketData(id: number, chunk: Buffer): void {
         return;
     }
     const frames = st.reader.feed(chunk);
-    if (process.env.PERRY_PG_TRACE !== undefined) console.log('[pg] frames decoded=' + frames.length);
     for (let i = 0; i < frames.length; i++) {
         handleFrame(id, frames[i]);
     }
@@ -575,9 +582,13 @@ function onSocketError(id: number, err: Error | string): void {
             st.errorHandlers[i](asError);
         }
         if (st.pending !== null) {
-            const p = st.pending;
+            // Pull the reject closure out of the state object into a local
+            // right before calling — Perry's native codegen doesn't wake
+            // awaiters when a Promise resolver is invoked via a chained
+            // property access on a shared state slot.
+            const rj = st.pending.reject;
             st.pending = null;
-            p.reject(asError);
+            rj(asError);
         }
     }
 }
@@ -594,14 +605,15 @@ function onSocketClose(id: number): void {
     const err = new Error('connection closed');
     failStartup(id, err);
     if (st.pending !== null) {
-        const p = st.pending;
+        const rj = st.pending.reject;
         st.pending = null;
-        p.reject(err);
+        rj(err);
     }
     CONN_STATES.delete(id);
 }
 
 // ─── Frame dispatch ──────────────────────────────────────────────────────────
+
 
 function handleFrame(id: number, frame: FrameView): void {
     const st = CONN_STATES.get(id);
@@ -754,7 +766,7 @@ function handleParameterStatus(id: number, payload: Buffer): void {
         return;
     }
     const p = decodeParameterStatus(payload);
-    st.paramStatus[p.name] = p.value;
+    st.paramStatus.set(p.name, p.value);
     for (let i = 0; i < st.paramHandlers.length; i++) {
         st.paramHandlers[i](p.name, p.value);
     }
@@ -777,13 +789,17 @@ function handleReadyForQuery(id: number, payload: Buffer): void {
         return;
     }
     if (st.status === 'querying' && st.pending !== null) {
-        const p = st.pending;
-        st.pending = null;
         st.status = 'ready';
-        if (p.error !== null) {
-            p.reject(p.error);
+        if (st.pending.error !== null) {
+            const e = st.pending.error;
+            const rj = st.pending.reject;
+            st.pending = null;
+            rj(e);
         } else {
-            p.resolve(buildQueryResult(p.fields, p.rowsRaw, p.commandTag, p.rowCount));
+            const qr = buildQueryResult(st.pending.fields, st.pending.rowsRaw, st.pending.commandTag, st.pending.rowCount);
+            const rs = st.pending.resolve;
+            st.pending = null;
+            rs(qr);
         }
     }
 }

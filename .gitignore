@@ -1,0 +1,5 @@
+node_modules/
+*.o
+_perry_failed_stubs.o
+/tmp/
+/dist/

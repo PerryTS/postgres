@@ -1,12 +1,10 @@
-// Public API of @perry/postgres. Stable surface; sub-modules are
-// importable but not part of the semver contract.
+// Public API of @perry/postgres — a pure-TypeScript Postgres wire-protocol
+// driver that runs on Node.js / Bun, and ahead-of-time compiles to a native
+// binary on Perry (https://github.com/PerryTS/perry) via LLVM.
 //
-// Future additions (as milestones C2–C7 land):
-//   - `connect(opts)` returning a `Connection` with query / prepare /
-//     cancel / close + NOTICE / parameter / error events.
-//   - `Decimal` wrapper over perry-stdlib's `rust_decimal` for numeric fidelity.
-//   - Type codec registry (`registerType`) and the 20 built-in codecs.
-//   - Structured `PgError` with full ErrorResponse field set.
+// This file is the stable semver surface. Sub-modules under `src/` are
+// importable for tests and advanced use but are NOT part of the semver
+// contract.
 
 // Wire framing (C1)
 export {
