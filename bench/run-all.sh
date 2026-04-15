@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Run every benchmark variant against the same Postgres and write
+# results/all.txt + results/summary.md. Idempotent — overwrites both
+# files on every run.
+#
+# Variants:
+#   1. @perry/postgres on Bun
+#   2. @perry/postgres on Node
+#   3. @perry/postgres compiled to Perry-native binary
+#   4. pg              on Node
+#   5. postgres.js     on Node
+#
+# Postgres credentials come from PGHOST/PGPORT/PGUSER/PGPASSWORD/
+# PGDATABASE just like every other example in this repo. The script
+# honors them through the env it runs each variant in.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BENCH="${ROOT}/bench"
+OUT="${BENCH}/results"
+mkdir -p "${OUT}"
+
+PERRY="${PERRY:-/Users/amlug/projects/perry/perry/target/release/perry}"
+BUN="${BUN:-${HOME}/.bun/bin/bun}"
+
+ALL="${OUT}/all.txt"
+: > "${ALL}"
+
+run() {
+    local label="$1"; shift
+    echo "▸ ${label}" | tee -a "${ALL}"
+    if "$@" >> "${ALL}" 2>&1; then
+        echo "  ok" | tee -a "${ALL}"
+    else
+        echo "  FAILED (exit $?)" | tee -a "${ALL}"
+    fi
+    echo "" >> "${ALL}"
+}
+
+# 1. @perry/postgres on Bun
+if [[ -x "${BUN}" ]]; then
+    run "@perry/postgres on Bun" "${BUN}" "${BENCH}/bench-this.ts"
+else
+    echo "▸ @perry/postgres on Bun — SKIPPED (bun not at ${BUN})" | tee -a "${ALL}"
+fi
+
+# 2. @perry/postgres on Node
+run "@perry/postgres on Node" node --import tsx "${BENCH}/bench-this.ts"
+
+# 3. @perry/postgres compiled to Perry-native
+if [[ -x "${PERRY}" ]]; then
+    PERRY_BIN="$(mktemp -t bench-this.XXXXXX)"
+    if "${PERRY}" compile "${BENCH}/bench-this.ts" -o "${PERRY_BIN}" >> "${ALL}" 2>&1; then
+        run "@perry/postgres on Perry (native)" "${PERRY_BIN}"
+    else
+        echo "▸ @perry/postgres on Perry — compile FAILED" | tee -a "${ALL}"
+    fi
+    rm -f "${PERRY_BIN}"
+else
+    echo "▸ @perry/postgres on Perry — SKIPPED (perry not at ${PERRY})" | tee -a "${ALL}"
+fi
+
+# 4. pg on Node
+run "pg on Node" node --import tsx "${BENCH}/bench-pg.ts"
+
+# 5. postgres.js on Node
+run "postgres.js on Node" node --import tsx "${BENCH}/bench-postgres-js.ts"
+
+# Build the comparison table from the captured output. The grep keeps
+# only lines that look like data rows (start with the driver label
+# followed by a workload name), so the noise from compile output and
+# sectioning headers stays out of the summary.
+SUMMARY="${OUT}/summary.md"
+{
+    echo "# Benchmark results"
+    echo ""
+    date
+    echo ""
+    echo "PG: \`${PGHOST:-127.0.0.1}:${PGPORT:-5432}/${PGDATABASE:-perch_test}\`"
+    echo ""
+    echo '```'
+    grep -E '^(@perry/postgres|pg |postgres.js)' "${ALL}" || true
+    echo '```'
+} > "${SUMMARY}"
+
+echo ""
+echo "▶ raw output: ${ALL}"
+echo "▶ summary  : ${SUMMARY}"

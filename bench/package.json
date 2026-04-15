@@ -1,0 +1,21 @@
+{
+  "name": "@perry/postgres-bench",
+  "private": true,
+  "description": "Benchmark sandbox for @perry/postgres. Lives in its own package so the comparison libraries (pg, postgres) stay out of the published driver's dependency tree.",
+  "scripts": {
+    "bench:this:bun": "bun bench-this.ts",
+    "bench:this:node": "node --import tsx bench-this.ts",
+    "bench:pg:node": "node --import tsx bench-pg.ts",
+    "bench:postgres-js:node": "node --import tsx bench-postgres-js.ts",
+    "bench:all": "bash run-all.sh"
+  },
+  "dependencies": {
+    "pg": "^8.13.0",
+    "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.0"
+  }
+}
