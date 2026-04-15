@@ -366,10 +366,10 @@ unix socket loopback, no SSH tunnel — RTT removed from the picture).
 
 | workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native | pg (node)   | postgres.js (node) | tokio-postgres (rust) |
 | ------------ | -------------------- | ------------------- | ---------------------------- | ----------- | ------------------ | --------------------- |
-| `SELECT 1`   | 73µs                 | 84µs                | 3 ms                         | **149µs**   | 75µs               | 73µs                  |
-| param 1-row  | 100µs                | 128µs               | 3 ms                         | 181µs       | 166µs              | 107µs                 |
-| 1000 × 20    | 3.7 ms               | 3.4 ms              | 43 ms                        | **2.8 ms**  | 3.0 ms             | 2.9 ms                |
-| 10000 × 20   | 37.8 ms              | 34.1 ms             | 896 ms                       | **21.0 ms** | 27.7 ms            | 28.3 ms               |
+| `SELECT 1`   | 64µs                 | 87µs                | 3 ms                         | 104µs       | 58µs               | 94µs                  |
+| param 1-row  | 97µs                 | 107µs               | 3 ms                         | 152µs       | 125µs              | 101µs                 |
+| 1000 × 20    | 3.5 ms               | 3.4 ms              | 42 ms                        | **2.5 ms**  | 2.9 ms             | 2.8 ms                |
+| 10000 × 20   | 35.7 ms              | 34.2 ms             | 764 ms                       | **20.4 ms** | 27.7 ms            | 26.6 ms               |
 
 Notes:
 
@@ -408,15 +408,17 @@ Notes:
 - **Perry-native** has a constant ~3 ms per query overhead vs ~100µs
   on the JS hosts — that's the AOT runtime's promise / async / FFI
   per-call cost rather than anything driver-level. Bulk decode is
-  currently ~10× slower than the JS hosts on bulk results (44 ms vs
-  3.7 ms on 1000×20; 900 ms vs 38 ms on 10000×20) — every row builds
-  a wrapper-heavy object chain in Perry's arena GC and there's real
-  per-cell cost there the JS JITs optimise out. Correctness is the
-  headline here, not speed: Perry requires ≥ 0.5.28 for stable
-  iteration of bulk result sets (the fix chain is PerryTS/perry
-  #32 / #33 / #34 / #35 / #36 — `CONN_STATES` was getting swept
-  mid-decode because module-level globals weren't registered as GC
-  roots).
+  currently ~10–20× slower than the JS hosts on bulk results (42 ms
+  vs 3.5 ms on 1000×20; 764 ms vs 36 ms on 10000×20) — every row
+  builds a wrapper-heavy object chain in Perry's arena GC and there's
+  real per-cell cost there the JS JITs optimise out. Correctness
+  landed first across PerryTS/perry #32 / #33 / #34 / #35 / #36
+  (module-level globals weren't registered as GC roots, so
+  `CONN_STATES` was getting swept mid-decode). Speed is landing in
+  increments — 0.5.29 shipped a ~14% cut on the 10k-row workload by
+  gating the shape-clone on a `GC_FLAG_SHAPE_SHARED` bit and moving
+  the accessor-descriptor `String` allocation to a lazy path.
+  Requires Perry ≥ 0.5.29.
 
 Reproduce: `bench/run-all.sh` after `npm install` inside `bench/`
 (plus `cargo` on PATH for the Rust runner) and either pointing
