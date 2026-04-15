@@ -93,6 +93,28 @@ export function decodeValue(oid: number, format: number, buf: Buffer): unknown {
 }
 
 /**
+ * OIDs whose `'rich'`-mode decoder allocates a per-cell wrapper that
+ * `'minimal'` mode skips in favour of the raw Postgres text. Defining
+ * the set here (instead of inline in `pickDecoder`) keeps the choice
+ * easy to audit and easy to extend (e.g. arrays of these types).
+ *
+ * Heuristic: include any OID where the rich-mode decode allocates a
+ * `bigint`, `Decimal`, or `PgDate`/`PgTime`/`PgTimestamp`/`PgInterval`
+ * wrapper. Skip int2/int4/float (cheap primitives), text-family
+ * (already strings), bool (primitive), bytea (raw bytes are the
+ * typical consumer shape), uuid (canonical string), json/jsonb
+ * (parsed values are the typical consumer shape).
+ */
+import * as O from './oids';
+const MINIMAL_TEXT_OIDS = new Set<number>([
+    O.OID_INT8,
+    O.OID_NUMERIC,
+    O.OID_DATE, O.OID_TIME, O.OID_TIMETZ,
+    O.OID_TIMESTAMP, O.OID_TIMESTAMPTZ,
+    O.OID_INTERVAL,
+]);
+
+/**
  * Resolve once and return a `(buf) => unknown` thunk specialised for a
  * single (oid, format) pair. Hot path callers (the row decoder in
  * connection.ts) call `pickDecoder` once per result column at the top
@@ -103,8 +125,22 @@ export function decodeValue(oid: number, format: number, buf: Buffer): unknown {
  * Format and codec are baked into the returned closure. The unknown-OID
  * raw-text fallback and the binary-without-binary-codec fallback both
  * resolve at construction, not per cell.
+ *
+ * `minimal` (default false): if true, OIDs in `MINIMAL_TEXT_OIDS` skip
+ * their wrapper allocation and return the raw Postgres text instead —
+ * matches `node-postgres`'s default behaviour. Halves bulk-decode wall
+ * time on result sets dominated by int8 / numeric / date-family
+ * columns; the trade is the consumer has to parse / interpret the
+ * value themselves.
  */
-export function pickDecoder(oid: number, format: number): (buf: Buffer) => unknown {
+export function pickDecoder(
+    oid: number,
+    format: number,
+    minimal: boolean = false
+): (buf: Buffer) => unknown {
+    if (minimal && format !== FORMAT_BINARY && MINIMAL_TEXT_OIDS.has(oid)) {
+        return decodeAsUtf8;
+    }
     const codec = getCodec(oid);
     if (codec === undefined) {
         return decodeAsUtf8;

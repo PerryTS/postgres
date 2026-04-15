@@ -286,3 +286,34 @@ test('getCodec returns the codec for every registered OID', () => {
         expect(getCodec(oid)).not.toBeUndefined();
     }
 });
+
+// ─── pickDecoder + parseTypes: 'minimal' ────────────────────────────────────
+
+import { pickDecoder } from '../../src/types/registry';
+
+test("pickDecoder rich mode wraps int8 / numeric / date types", () => {
+    expect(pickDecoder(OID_INT8, FORMAT_TEXT)(Buffer.from('123', 'utf8'))).toBe(123n);
+    const num = pickDecoder(OID_NUMERIC, FORMAT_TEXT)(Buffer.from('1.5', 'utf8')) as Decimal;
+    expect(num.toString()).toBe('1.5');
+    expect(typeof pickDecoder(OID_DATE, FORMAT_TEXT)(Buffer.from('2024-01-15', 'utf8'))).toBe('object');
+});
+
+test("pickDecoder minimal mode returns raw text for int8 / numeric / date", () => {
+    expect(pickDecoder(OID_INT8, FORMAT_TEXT, true)(Buffer.from('123', 'utf8'))).toBe('123');
+    expect(pickDecoder(OID_NUMERIC, FORMAT_TEXT, true)(Buffer.from('1.5', 'utf8'))).toBe('1.5');
+    expect(pickDecoder(OID_DATE, FORMAT_TEXT, true)(Buffer.from('2024-01-15', 'utf8'))).toBe('2024-01-15');
+    expect(pickDecoder(OID_INTERVAL, FORMAT_TEXT, true)(Buffer.from('1 day', 'utf8'))).toBe('1 day');
+});
+
+test("pickDecoder minimal does NOT affect text / bool / int4 / json / arrays", () => {
+    expect(pickDecoder(OID_INT4, FORMAT_TEXT, true)(Buffer.from('42', 'utf8'))).toBe(42);
+    expect(pickDecoder(OID_BOOL, FORMAT_TEXT, true)(Buffer.from('t', 'utf8'))).toBe(true);
+    expect(pickDecoder(OID_TEXT, FORMAT_TEXT, true)(Buffer.from('hi', 'utf8'))).toBe('hi');
+    expect(pickDecoder(OID_JSON, FORMAT_TEXT, true)(Buffer.from('{"a":1}', 'utf8'))).toEqual({ a: 1 });
+});
+
+test("pickDecoder minimal is ignored in binary format (binary already parsed)", () => {
+    const buf = Buffer.alloc(8);
+    buf.writeBigInt64BE(42n);
+    expect(pickDecoder(OID_INT8, FORMAT_BINARY, true)(buf)).toBe(42n);
+});

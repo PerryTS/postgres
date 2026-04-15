@@ -98,6 +98,27 @@ export interface ConnectOptions {
      * Default when `ssl` is omitted: no TLS (`disable`-like).
      */
     ssl?: { mode: 'disable' | 'require' | 'verify-ca' | 'verify-full' };
+    /**
+     * How aggressively the driver decodes Postgres values into typed
+     * JS wrappers:
+     *
+     *   - `'rich'` (default): decode every supported OID into the
+     *     idiomatic JS shape — `int8` → `bigint`, `numeric` → `Decimal`,
+     *     `date`/`time`/`timestamp`/`interval` → typed wrappers,
+     *     `json`/`jsonb` → parsed JS values, etc. The right choice for
+     *     a GUI / ORM that needs to render or compute on values; the
+     *     trade is per-cell wrapper allocation.
+     *   - `'minimal'`: skip the wrapper allocation for the heavy types
+     *     and return the raw Postgres text instead — `int8` → `string`,
+     *     `numeric` → `string`, `date`/`time`/`timestamp`/`interval` →
+     *     `string`. Matches `node-postgres`'s default behaviour and
+     *     halves bulk-decode wall time on result sets dominated by
+     *     those types. Other types (int2/int4/float, text family, bool,
+     *     bytea, uuid, json, jsonb, arrays) decode the same way as
+     *     in `'rich'` mode — those are either zero-cost or the parsed
+     *     value really is the natural shape.
+     */
+    parseTypes?: 'rich' | 'minimal';
 }
 
 export interface QueryResult<T = Record<string, unknown>> {
@@ -836,7 +857,8 @@ function handleReadyForQuery(id: number, payload: Buffer): void {
             st.pending = null;
             rj(e);
         } else {
-            const qr = buildQueryResult(st.pending.fields, st.pending.rowsRaw, st.pending.commandTag, st.pending.rowCount);
+            const minimal = st.opts.parseTypes === 'minimal';
+            const qr = buildQueryResult(st.pending.fields, st.pending.rowsRaw, st.pending.commandTag, st.pending.rowCount, minimal);
             const rs = st.pending.resolve;
             st.pending = null;
             rs(qr);
@@ -919,7 +941,8 @@ function buildQueryResult(
     fields: FieldDescription[],
     rowsRaw: RawRow[],
     command: string,
-    rowCount: number
+    rowCount: number,
+    minimal: boolean
 ): QueryResult {
     const ncols = fields.length;
     const nrows = rowsRaw.length;
@@ -930,7 +953,7 @@ function buildQueryResult(
     for (let j = 0; j < ncols; j++) {
         const f = fields[j];
         names[j] = f.name;
-        decoders[j] = pickDecoder(f.typeOid, f.formatCode);
+        decoders[j] = pickDecoder(f.typeOid, f.formatCode, minimal);
     }
 
     const RowCtor = getRowCtor(names);

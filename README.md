@@ -379,7 +379,19 @@ Notes:
   `PgDate` per cell. Most of our remaining gap is the wrapper-allocation
   cost on those types. We chose to wrap by default because the GUI use
   case (Tusk) needs them typed; if you don't, those wrappers are pure
-  overhead.
+  overhead — pass `parseTypes: 'minimal'` to `connect()` to opt out
+  and get the same string-as-default shape `pg` uses (~5% off our
+  default on mixed workloads, ~20% off on result sets dominated by
+  int8 / numeric / date columns):
+
+  ```ts
+  const conn = await connect({
+    host: 'db.example.com',
+    user: 'app',
+    database: 'myapp',
+    parseTypes: 'minimal',  // int8/numeric/date/time/timestamp/interval → string
+  });
+  ```
 - **`postgres.js`** sits between us and `pg`; same reason it's slower
   than `pg` (some parsing) and same reason it's faster than us (less
   parsing). We're within ~1.1–1.3× of it on bulk results — typically

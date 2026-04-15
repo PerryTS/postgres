@@ -27,16 +27,24 @@ function envUser(): string {
 function envDb(): string {
     return process.env.PGDATABASE !== undefined ? process.env.PGDATABASE : 'perch_test';
 }
+/** True when the env asked us to run with `parseTypes: 'minimal'`.
+ *  The bench-this binary picks this up when comparing apples-to-apples
+ *  with `pg`'s default behaviour. */
+function isMinimalParse(): boolean {
+    return process.env.PERRY_PG_BENCH_MINIMAL === '1';
+}
+
 function driverLabel(): string {
+    const tag = isMinimalParse() ? ' (min)' : '';
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const g = globalThis as any;
     if (g.Bun !== undefined) {
-        return '@perry/postgres bun';
+        return '@perry/postgres bun' + tag;
     }
     if (g.process !== undefined && g.process.versions !== undefined && g.process.versions.node !== undefined) {
-        return '@perry/postgres node';
+        return '@perry/postgres node' + tag;
     }
-    return '@perry/postgres perry';
+    return '@perry/postgres perry' + tag;
 }
 
 function isPerry(): boolean {
@@ -58,6 +66,7 @@ async function main(): Promise<void> {
         user: envUser(),
         password: process.env.PGPASSWORD,
         database: envDb(),
+        parseTypes: isMinimalParse() ? 'minimal' : 'rich',
     });
 
     const label = driverLabel();
