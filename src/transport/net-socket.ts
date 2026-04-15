@@ -44,7 +44,7 @@ export interface Socket {
 }
 
 /** True when running under Node.js or Bun (both expose `process.versions.node`). */
-function isNodeLike(): boolean {
+export function isNodeLike(): boolean {
     // The indirection keeps Perry's compiler from seeing bare `process` as
     // a required global — we probe defensively.
     const g = globalThis as { process?: { versions?: { node?: string } } };

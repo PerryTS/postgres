@@ -24,6 +24,7 @@
 // isn't referentially identical to the input (Perry case).
 
 import type { Socket } from './net-socket';
+import { isNodeLike } from './net-socket';
 
 export interface TlsUpgradeOpts {
     /**
@@ -51,8 +52,24 @@ export interface TlsUpgradeOpts {
  * its `'data' | 'error' | 'close'` listeners to the new handle.
  */
 export async function upgradeToTls(sock: Socket, opts: TlsUpgradeOpts): Promise<Socket> {
-    if (typeof sock.upgradeToTLS === 'function') {
-        await sock.upgradeToTLS(opts.servername, opts.verify ? 1 : 0);
+    if (!isNodeLike()) {
+        // Perry path. Two interlocking quirks force the shape of this code:
+        //
+        //   1. We can't use `typeof sock.upgradeToTLS === 'function'` as a
+        //      feature probe — Perry's interface dispatch reports the
+        //      optional method as undefined when read as a property, even
+        //      though calling it works fine via the runtime FFI dispatch.
+        //   2. The `Promise` returned by perry-stdlib FFI methods is a
+        //      native object whose `.then` likewise reads as undefined
+        //      from JS. Only `await` drives it to resolution.
+        //
+        // So: branch on the platform, then `await` the stdlib promise
+        // directly. The outer caller MUST also `await` the Promise this
+        // async function returns; chaining `.then(...)` on it does not
+        // fire on Perry.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sockAny = sock as any;
+        await sockAny.upgradeToTLS(opts.servername, opts.verify ? 1 : 0);
         return sock;
     }
     return upgradeNode(sock, opts);

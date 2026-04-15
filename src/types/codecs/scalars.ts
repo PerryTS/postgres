@@ -140,8 +140,9 @@ export const boolCodec: Codec<boolean> = {
     name: 'bool',
     text: {
         decode(buf: Buffer): boolean {
-            // Server emits 't' / 'f'.
-            return buf.length > 0 && buf[0] === 0x74;
+            // Server emits 't' / 'f'. Use `readUInt8` not `buf[0]` —
+            // Perry doesn't expose Buffer indexed access.
+            return buf.length > 0 && buf.readUInt8(0) === 0x74;
         },
         encode(v: boolean): Buffer {
             return Buffer.from(v ? 't' : 'f', 'utf8');

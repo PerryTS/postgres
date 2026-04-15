@@ -51,7 +51,7 @@ import {
     RawRow,
     TxnStatus,
 } from './protocol/decoder';
-import './types/default-codecs';
+import { registerDefaultCodecs } from './register-defaults';
 import { decodeValue, encodeValue } from './types/registry';
 import { FORMAT_TEXT } from './types/oids';
 import {
@@ -64,7 +64,7 @@ import {
 } from './protocol/messages';
 import { PgError, parsePgError } from './error';
 import { parsePgNotice, PgNotice } from './notice';
-import { openSocket, Socket } from './transport/net-socket';
+import { openSocket, isNodeLike, Socket } from './transport/net-socket';
 import { upgradeToTls } from './transport/upgrade-tls';
 import { computeMD5Password } from './auth/md5';
 import { scramContinue, scramInit, scramVerifyServerFinal, ScramState } from './auth/scram';
@@ -360,6 +360,13 @@ export class Connection {
 export function connect(
     input: string | ConnectOptions | ResolveOptionsInput
 ): Promise<Connection> {
+    // Prime the OID → codec registry. Idempotent (guarded by an internal
+    // `registered` flag). Lives here because Perry's AOT module loader
+    // doesn't execute the top-level body of a side-effect-only import,
+    // so we have to make the registration reachable from the call graph
+    // of any reachable export.
+    registerDefaultCodecs();
+
     const opts: ConnectOptions =
         typeof input === 'string'
             ? resolveConnectOptions({ url: input })
@@ -509,24 +516,30 @@ function handleSSLNegotiationByte(id: number, chunk: Buffer): void {
         st.status = 'ssl-upgrading';
         const mode = st.opts.ssl !== undefined ? st.opts.ssl.mode : 'disable';
         const verify = mode === 'verify-ca' || mode === 'verify-full';
-        // Detach our plain-socket 'data' listener BEFORE the upgrade: on
-        // Node, tls.connect({socket}) otherwise races our listener for
-        // the raw TLS handshake bytes and the handshake never completes.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const sockAny = st.sock as any;
-        if (typeof sockAny.removeListener === 'function') {
-            sockAny.removeListener('data', st.dataListener);
-        } else if (typeof sockAny.off === 'function') {
-            sockAny.off('data', st.dataListener);
+        // On Node, detach our plain-socket 'data' listener BEFORE the
+        // upgrade: `tls.connect({socket})` otherwise races our listener
+        // for the raw TLS handshake bytes and the handshake never
+        // completes. On Perry the upgrade is in-place at the stdlib
+        // level — the existing 'data' listener keeps firing with
+        // post-handshake plaintext, so detach/re-attach would only
+        // double-fire (and on Perry, `typeof sock.removeListener` reads
+        // as undefined anyway, since stdlib methods aren't enumerable).
+        if (isNodeLike()) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sockAny = st.sock as any;
+            if (typeof sockAny.removeListener === 'function') {
+                sockAny.removeListener('data', st.dataListener);
+            } else if (typeof sockAny.off === 'function') {
+                sockAny.off('data', st.dataListener);
+            }
         }
-        upgradeToTls(st.sock, { servername: st.opts.host, verify: verify })
-            .then((newSock) => {
-                onUpgradeComplete(id, newSock);
-            })
-            .catch((err: Error) => {
-                failStartup(id, err);
-                st.sock.destroy();
-            });
+        // Drive the upgrade through `await` rather than `.then(...)`.
+        // On Perry, `.then` on the Promise returned by an async function
+        // (and on stdlib-returned Promises) reads as undefined and never
+        // fires. `await` is the only thing that drives them. We forward
+        // to a fire-and-forget async helper so this sync function still
+        // returns void.
+        runUpgrade(id, st.opts.host, verify);
         return;
     }
     if (first === 0x4E) {
@@ -542,6 +555,28 @@ function handleSSLNegotiationByte(id: number, chunk: Buffer): void {
     }
     failStartup(id, new Error('unexpected SSL negotiation byte: 0x' + first.toString(16)));
     st.sock.destroy();
+}
+
+/**
+ * Fire-and-forget async helper that drives the TLS upgrade through `await`
+ * (the only mechanism that wakes Perry-stdlib promise resolutions —
+ * see comment in `transport/upgrade-tls.ts`). Errors are funnelled into
+ * `failStartup` and the socket destroyed, mirroring the prior
+ * `.then/.catch` shape.
+ */
+async function runUpgrade(id: number, host: string, verify: boolean): Promise<void> {
+    const st = CONN_STATES.get(id);
+    if (st === undefined) {
+        return;
+    }
+    try {
+        const newSock: Socket = await upgradeToTls(st.sock, { servername: host, verify: verify });
+        onUpgradeComplete(id, newSock);
+    } catch (e) {
+        const err = e instanceof Error ? e : new Error(String(e));
+        failStartup(id, err);
+        st.sock.destroy();
+    }
 }
 
 /**
@@ -565,11 +600,10 @@ function onUpgradeComplete(id: number, newSock: Socket): void {
         newSock.on('close', () => {
             onSocketClose(id);
         });
-    } else {
-        // Perry path: same handle, re-attach our 'data' listener since we
-        // detached it before the upgrade.
-        newSock.on('data', st.dataListener);
     }
+    // Perry path (newSock === st.sock): the original 'data' listener was
+    // never detached (see handleSSLNegotiationByte), so don't re-attach
+    // — doing so would double-fire every post-handshake frame.
     sendStartup(id);
 }
 
@@ -783,8 +817,14 @@ function handleReadyForQuery(id: number, payload: Buffer): void {
         st.status = 'ready';
         if (st.startupGate !== null && !st.startupGate.settled) {
             st.startupGate.settled = true;
-            st.startupGate.resolve(st.connection);
+            // Local-extract pattern (Perry gotcha #5): pull the resolver
+            // out of the gate object before clearing the slot, then call.
+            // The current handshake-timer wrapper shape happens to wake
+            // the awaiter, but the explicit local is the documented-safe
+            // pattern across the rest of this file.
+            const rs = st.startupGate.resolve;
             st.startupGate = null;
+            rs(st.connection);
         }
         return;
     }
@@ -991,8 +1031,9 @@ function handleErrorResponse(id: number, payload: Buffer): void {
     }
     if (st.status === 'authenticating' && st.startupGate !== null && !st.startupGate.settled) {
         st.startupGate.settled = true;
-        st.startupGate.reject(err);
+        const rj = st.startupGate.reject;
         st.startupGate = null;
+        rj(err);
         return;
     }
     for (let i = 0; i < st.errorHandlers.length; i++) {
@@ -1086,7 +1127,8 @@ function failStartup(id: number, err: Error): void {
     }
     if (st.startupGate !== null && !st.startupGate.settled) {
         st.startupGate.settled = true;
-        st.startupGate.reject(err);
+        const rj = st.startupGate.reject;
         st.startupGate = null;
+        rj(err);
     }
 }
