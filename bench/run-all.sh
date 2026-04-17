@@ -67,6 +67,15 @@ run "pg on Node" node --import tsx "${BENCH}/bench-pg.ts"
 # 5. postgres.js on Node
 run "postgres.js on Node" node --import tsx "${BENCH}/bench-postgres-js.ts"
 
+# 5a. pg-native (libpq) on Node. Bun and Perry are structurally
+# excluded: Bun can load N-API addons but `pg-native` doesn't ship a
+# prebuilt binary for Bun's ABI and building from source requires
+# a node-gyp + Python toolchain; Perry-native can't load dynamically-
+# linked C addons at all (that's why @perry/postgres is pure TS).
+# Record the Node number for the "native C driver ceiling from a JS
+# host" comparison.
+run "pg-native on Node" node --import tsx "${BENCH}/bench-pg-native.ts"
+
 # 6. tokio-postgres (Rust). Build only if cargo is on PATH; runs the
 # release binary so optimisation level matches the JS hot paths.
 if command -v cargo >/dev/null 2>&1; then
@@ -92,7 +101,7 @@ SUMMARY="${OUT}/summary.md"
     echo "PG: \`${PGHOST:-127.0.0.1}:${PGPORT:-5432}/${PGDATABASE:-perch_test}\`"
     echo ""
     echo '```'
-    grep -E '^(@perry/postgres|pg |postgres.js|tokio-postgres)' "${ALL}" || true
+    grep -E '^(@perry/postgres|pg |postgres.js|tokio-postgres|pg-native)' "${ALL}" || true
     echo '```'
 } > "${SUMMARY}"
 
