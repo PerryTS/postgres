@@ -1,33 +1,36 @@
 # Benchmark results
 
-Fri Apr 17 11:32:04 CEST 2026
+Fri Apr 17 19:21:50 CEST 2026
 
 PG: `127.0.0.1:55432/bench`
 
 ```
-@perry/postgres bun   tiny                n=50    min 71µs       p50 109µs      p95 169µs      mean 116µs    
-@perry/postgres bun   param-1row          n=50    min 83µs       p50 111µs      p95 169µs      mean 119µs    
-@perry/postgres bun   medium-1k-x-20      n=50    min 3.33ms     p50 3.60ms     p95 7.14ms     mean 6.73ms   
-@perry/postgres bun   large-10k-x-20      n=50    min 30.8ms     p50 35.1ms     p95 43.2ms     mean 36.0ms   
-@perry/postgres node  tiny                n=50    min 43µs       p50 56µs       p95 138µs      mean 71µs     
-@perry/postgres node  param-1row          n=50    min 74µs       p50 124µs      p95 160µs      mean 120µs    
-@perry/postgres node  medium-1k-x-20      n=50    min 3.38ms     p50 3.60ms     p95 4.66ms     mean 3.75ms   
-@perry/postgres node  large-10k-x-20      n=50    min 31.7ms     p50 35.8ms     p95 44.5ms     mean 36.3ms   
-@perry/postgres perry  tiny                n=50    min 2.00ms     p50 3.00ms     p95 3.00ms     mean 2.52ms   
-pg                node  tiny                n=50    min 71µs       p50 79µs       p95 185µs      mean 104µs    
-pg                node  param-1row          n=50    min 104µs      p50 135µs      p95 218µs      mean 143µs    
-pg                node  medium-1k-x-20      n=50    min 2.25ms     p50 2.47ms     p95 3.99ms     mean 2.67ms   
-pg                node  large-10k-x-20      n=50    min 19.5ms     p50 20.5ms     p95 28.6ms     mean 22.5ms   
-postgres.js       node  tiny                n=50    min 45µs       p50 76µs       p95 139µs      mean 85µs     
-postgres.js       node  param-1row          n=50    min 107µs      p50 160µs      p95 246µs      mean 165µs    
-postgres.js       node  medium-1k-x-20      n=50    min 2.61ms     p50 2.84ms     p95 4.34ms     mean 3.12ms   
-postgres.js       node  large-10k-x-20      n=50    min 22.8ms     p50 26.2ms     p95 35.7ms     mean 26.5ms   
-pg-native         node  tiny                n=50    min 28µs       p50 35µs       p95 96µs       mean 51µs     
-pg-native         node  param-1row          n=50    min 34µs       p50 39µs       p95 110µs      mean 52µs     
-pg-native         node  medium-1k-x-20      n=50    min 3.85ms     p50 4.04ms     p95 4.30ms     mean 4.05ms   
-pg-native         node  large-10k-x-20      n=50    min 36.4ms     p50 37.3ms     p95 38.3ms     mean 37.5ms   
-tokio-postgres   rust tiny                n=50    min 87µs       p50 113µs      p95 188µs      mean 122µs     
-tokio-postgres   rust param-1row          n=50    min 77µs       p50 84µs       p95 120µs      mean 88µs      
-tokio-postgres   rust medium-1k-x-20      n=50    min 2.67ms     p50 2.80ms     p95 2.92ms     mean 2.80ms    
-tokio-postgres   rust large-10k-x-20      n=50    min 26.0ms     p50 26.4ms     p95 27.2ms     mean 26.5ms    
+@perry/postgres bun   tiny                n=50    min 33µs       p50 87µs       p95 205µs      mean 125µs    
+@perry/postgres bun   param-1row          n=50    min 42µs       p50 63µs       p95 102µs      mean 65µs     
+@perry/postgres bun   medium-1k-x-20      n=50    min 3.10ms     p50 3.35ms     p95 6.23ms     mean 3.83ms   
+@perry/postgres bun   large-10k-x-20      n=50    min 30.6ms     p50 33.3ms     p95 36.3ms     mean 33.3ms   
+@perry/postgres node  tiny                n=50    min 73µs       p50 82µs       p95 151µs      mean 100µs    
+@perry/postgres node  param-1row          n=50    min 105µs      p50 138µs      p95 252µs      mean 164µs    
+@perry/postgres node  medium-1k-x-20      n=50    min 3.44ms     p50 3.64ms     p95 4.76ms     mean 3.79ms   
+@perry/postgres node  large-10k-x-20      n=50    min 31.5ms     p50 36.0ms     p95 45.1ms     mean 36.7ms   
+@perry/postgres perry  tiny                n=50    min 2.00ms     p50 2.50ms     p95 3.00ms     mean 2.50ms   
+@perry/postgres perry  param-1row          n=50    min 2.00ms     p50 2.00ms     p95 3.00ms     mean 2.46ms   
+@perry/postgres perry  medium-1k-x-20      n=50    min 9.00ms     p50 11.0ms     p95 16.0ms     mean 11.7ms   
+@perry/postgres perry  large-10k-x-20      n=50    min 90.0ms     p50 100.0ms    p95 174.0ms    mean 109.7ms  
+pg                node  tiny                n=50    min 72µs       p50 82µs       p95 166µs      mean 94µs     
+pg                node  param-1row          n=50    min 99µs       p50 132µs      p95 193µs      mean 137µs    
+pg                node  medium-1k-x-20      n=50    min 2.27ms     p50 2.48ms     p95 4.16ms     mean 2.71ms   
+pg                node  large-10k-x-20      n=50    min 19.9ms     p50 22.1ms     p95 42.5ms     mean 25.2ms   
+postgres.js       node  tiny                n=50    min 47µs       p50 85µs       p95 257µs      mean 116µs    
+postgres.js       node  param-1row          n=50    min 93µs       p50 137µs      p95 230µs      mean 147µs    
+postgres.js       node  medium-1k-x-20      n=50    min 2.60ms     p50 2.99ms     p95 6.62ms     mean 3.48ms   
+postgres.js       node  large-10k-x-20      n=50    min 23.4ms     p50 28.7ms     p95 43.3ms     mean 29.4ms   
+pg-native         node  tiny                n=50    min 59µs       p50 77µs       p95 116µs      mean 89µs     
+pg-native         node  param-1row          n=50    min 66µs       p50 77µs       p95 108µs      mean 81µs     
+pg-native         node  medium-1k-x-20      n=50    min 3.88ms     p50 4.07ms     p95 4.20ms     mean 4.07ms   
+pg-native         node  large-10k-x-20      n=50    min 37.1ms     p50 38.0ms     p95 39.1ms     mean 38.1ms   
+tokio-postgres   rust tiny                n=50    min 65µs       p50 80µs       p95 102µs      mean 80µs      
+tokio-postgres   rust param-1row          n=50    min 65µs       p50 80µs       p95 106µs      mean 83µs      
+tokio-postgres   rust medium-1k-x-20      n=50    min 2.68ms     p50 2.78ms     p95 2.93ms     mean 2.79ms    
+tokio-postgres   rust large-10k-x-20      n=50    min 26.1ms     p50 26.5ms     p95 29.7ms     mean 27.5ms    
 ```

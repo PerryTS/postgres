@@ -366,27 +366,23 @@ unix socket loopback, no SSH tunnel — RTT removed from the picture).
 
 | workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native¹ | pg (node)   | pg-native (node)² | postgres.js (node) | tokio-postgres (rust) |
 | ------------ | -------------------- | ------------------- | ----------------------------- | ----------- | ----------------- | ------------------ | --------------------- |
-| `SELECT 1`   | 56µs                 | 109µs               | 3.0 ms                        | 79µs        | 35µs              | 76µs               | 113µs                 |
-| param 1-row  | 124µs                | 111µs               | 2.5 ms                        | 135µs       | 39µs              | 160µs              | 84µs                  |
-| 1000 × 20    | 3.6 ms               | 3.6 ms              | 10.0 ms                       | **2.5 ms**  | 4.0 ms            | 2.8 ms             | 2.8 ms                |
-| 10000 × 20   | 35.8 ms              | 35.1 ms             | 93.0 ms                       | **20.5 ms** | 37.3 ms           | 26.2 ms            | 26.4 ms               |
+| `SELECT 1`   | 82µs                 | 87µs                | 2.5 ms                        | 82µs        | 77µs              | 85µs               | 80µs                  |
+| param 1-row  | 138µs                | 63µs                | 2.0 ms                        | 132µs       | 77µs              | 137µs              | 80µs                  |
+| 1000 × 20    | 3.6 ms               | 3.4 ms              | 11.0 ms                       | **2.5 ms**  | 4.1 ms            | 3.0 ms             | 2.8 ms                |
+| 10000 × 20   | 36.0 ms              | 33.3 ms             | 100 ms                        | **22.1 ms** | 38.0 ms           | 28.7 ms            | 26.5 ms               |
 
 ¹ Perry-native runs via `perry compile src/…/bench-this.ts`. The
   2–3 ms per-call floor is the AOT runtime's `Promise` / `async` /
   FFI overhead — Node and Bun amortise that into ~100µs per call
   via V8's / JSC's deopt-free hot paths. Bulk decode converged to
-  within ~2.5× of Node after the v0.5.30 hidden-class IC work
+  within ~2.8× of Node after the v0.5.30 hidden-class IC work
   (standalone 10k×20 dynamic-key object build actually **beats**
-  Node at 3.3 ms vs 8.5 ms; the Postgres-path 2.5× gap is all
+  Node at 3.3 ms vs 8.5 ms; the Postgres-path gap is all
   protocol-frame decoding + per-cell wrapper allocation, not
   object-shape cost).
 
-  Requires Perry ≥ 0.5.82 for correctness (the earlier chain of
-  fixes was #32 / #33 / #34 / #35 / #36 / #68 / #70 / #71 / #72).
-  A residual flakiness issue ([PerryTS/perry#73](https://github.com/PerryTS/perry/issues/73))
-  causes about 3 in 4 bench runs to SIGSEGV after `tiny` or corrupt
-  the `large-10k-x-20` sample array — numbers here are from a clean
-  completion. Retry if your run ends early.
+  Requires Perry ≥ 0.5.87. Prior fix chain: #32 / #33 / #34 / #35 /
+  #36 / #37 / #68 / #70 / #71 / #72 / #73.
 
 ² `pg-native` is the libpq N-API binding. Only runs on **Node** in
   practice: Perry-native can't load dynamically-linked C addons (this
@@ -403,14 +399,14 @@ unix socket loopback, no SSH tunnel — RTT removed from the picture).
 
 ### Perry-native journey
 
-The Perry-native column changed dramatically across 0.5.29 → 0.5.82:
+The Perry-native column changed dramatically across 0.5.29 → 0.5.87:
 
-| workload      | 0.5.29     | 0.5.82    | change  |
+| workload      | 0.5.29     | 0.5.87    | change  |
 | ------------- | ---------- | --------- | ------- |
-| `SELECT 1`    | 3.0 ms     | 3.0 ms    | -       |
-| param 1-row   | 3.0 ms     | 2.5 ms    | -17%    |
-| 1000 × 20     | 42 ms      | 10 ms     | **-76%** |
-| 10000 × 20    | 764 ms     | 93 ms     | **-88%** |
+| `SELECT 1`    | 3.0 ms     | 2.5 ms    | -17%    |
+| param 1-row   | 3.0 ms     | 2.0 ms    | -33%    |
+| 1000 × 20     | 42 ms      | 11 ms     | **-74%** |
+| 10000 × 20    | 764 ms     | 100 ms    | **-87%** |
 
 The big wins came from:
 
