@@ -364,12 +364,35 @@ Numbers from `bench/run-all.sh` against a local Postgres 16 (`127.0.0.1:55432`,
 unix socket loopback, no SSH tunnel — RTT removed from the picture).
 50 timed iterations + 5 warmups per workload. p50 wall time:
 
-| workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native | pg (node)   | postgres.js (node) | tokio-postgres (rust) |
-| ------------ | -------------------- | ------------------- | ---------------------------- | ----------- | ------------------ | --------------------- |
-| `SELECT 1`   | 64µs                 | 87µs                | 3 ms                         | 104µs       | 58µs               | 94µs                  |
-| param 1-row  | 97µs                 | 107µs               | 3 ms                         | 152µs       | 125µs              | 101µs                 |
-| 1000 × 20    | 3.5 ms               | 3.4 ms              | 42 ms                        | **2.5 ms**  | 2.9 ms             | 2.8 ms                |
-| 10000 × 20   | 35.7 ms              | 34.2 ms             | 764 ms                       | **20.4 ms** | 27.7 ms            | 26.6 ms               |
+| workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native¹ | pg (node)   | pg-native (node)² | postgres.js (node) | tokio-postgres (rust) |
+| ------------ | -------------------- | ------------------- | ----------------------------- | ----------- | ----------------- | ------------------ | --------------------- |
+| `SELECT 1`   | 88µs                 | 88µs                | (see note¹)                   | 83µs        | 59µs              | 56µs               | 95µs                  |
+| param 1-row  | 149µs                | 99µs                | (see note¹)                   | 125µs       | 75µs              | 134µs              | 99µs                  |
+| 1000 × 20    | 3.6 ms               | 3.3 ms              | (see note¹)                   | **2.5 ms**  | 4.1 ms            | 2.9 ms             | 2.9 ms                |
+| 10000 × 20   | 34.7 ms              | 33.2 ms             | (see note¹)                   | **20.1 ms** | 38.0 ms           | 27.8 ms            | 26.4 ms               |
+
+¹ Perry-native numbers are blocked pending **PerryTS/perry#72** —
+  0.5.76's scalar-replacement pass miscompiles the row accumulator,
+  so every query returns `.length === 0`. Pre-regression numbers
+  from 0.5.29 were: tiny 3 ms, param 3 ms, 1k×20 42 ms, 10k×20 764 ms.
+  Perry's hidden-class IC work (merged in 0.5.30) will cut those
+  significantly when the regression lands — the standalone
+  micro-repro at `examples/perry-bench-hidden-class.ts` already shows
+  **3.3 ms** for a pure 10k×20 dynamic-key obj build vs Node's 8.5 ms
+  (Perry is now faster per-cell).
+
+² `pg-native` is the libpq N-API binding. Only runs on **Node** in
+  practice: Perry-native can't load dynamically-linked C addons (this
+  driver exists precisely because that's a dead end for AOT targets),
+  and Bun requires a from-source rebuild against its own ABI v137
+  which isn't in the standard install flow.
+
+  Counter-intuitively, pg-native is **~1.8× slower** than `pg` (pure
+  JS) on bulk decode (38 ms vs 20 ms on 10k × 20). The N-API
+  boundary-crossing per row + per-cell marshalling into V8 objects
+  costs more than pg's stay-in-V8 text-format parser. C-speed inner
+  loops don't help when every parsed value still has to become a JS
+  heap object.
 
 Notes:
 
