@@ -360,9 +360,16 @@ source compile to a single-binary native executable on Perry.
 
 ## Performance
 
-Numbers from `bench/run-all.sh` against a local Postgres 16 (`127.0.0.1:55432`,
-unix socket loopback, no SSH tunnel — RTT removed from the picture).
-50 timed iterations + 5 warmups per workload. p50 wall time:
+**Short version:** V8 and JSC beat Perry at per-query wall time on a
+long-running process. Perry wins everywhere else — cold start, memory
+footprint, deploy size, and the set of platforms you can ship to.
+This driver's job is to make that trade available; the numbers below
+are what it looks like.
+
+### Hot-path throughput (what most benchmarks measure)
+
+`bench/run-all.sh` against a local Postgres 16, 50 timed iterations +
+5 warmups per workload, p50 wall time. Lower is better:
 
 | workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native¹ | pg (node)   | pg-native (node)² | postgres.js (node) | tokio-postgres (rust) |
 | ------------ | -------------------- | ------------------- | ----------------------------- | ----------- | ----------------- | ------------------ | --------------------- |
@@ -370,6 +377,51 @@ unix socket loopback, no SSH tunnel — RTT removed from the picture).
 | param 1-row  | 138µs                | 63µs                | 2.0 ms                        | 132µs       | 77µs              | 137µs              | 80µs                  |
 | 1000 × 20    | 3.6 ms               | 3.4 ms              | 11.0 ms                       | **2.5 ms**  | 4.1 ms            | 3.0 ms             | 2.8 ms                |
 | 10000 × 20   | 36.0 ms              | 33.3 ms             | 100 ms                        | **22.1 ms** | 38.0 ms           | 28.7 ms            | 26.5 ms               |
+
+Perry-native is ~2.8× Node on bulk decode and ~30× on tiny queries.
+That's the worst axis for AOT: V8 has had 20 years of trace-JIT
+engineering specifically to optimise these tight loops, and Perry's
+arena GC can't match a generational collector for short-lived row
+objects. If your process runs a `while (true) { query; }` loop
+forever, **run Node or Bun**.
+
+### Where Perry actually wins: cold start, memory, disk
+
+The thing you gain by AOT-compiling isn't a faster hot path — it's a
+process that's *ready before V8 is still loading*, uses a fraction of
+the memory, and ships as one file:
+
+| | Node (+tsx) | Bun | **Perry-native** |
+|-|---|---|---|
+| Cold start of a `console.log('hi')` script | 150 ms | 10 ms | **<10 ms (first run), ~1 ms after** |
+| Peak RSS for the same program | **37 MB** | 7.8 MB | **1.8 MB** |
+| Cold start of the driver's `conn.query('SELECT 1')` | 160–240 ms | 20–30 ms | (blocked on flakiness, see note¹) |
+| Driver binary / artifact | node runtime + `node_modules` | bun runtime + `node_modules` | single 4.6 MB static binary |
+| `node_modules` size to run the driver | ~40 MB | ~40 MB | 0 |
+| Deploys to iOS / Android / embedded | ❌ | ❌ | ✅ |
+
+For a long-running server — a web app, a queue worker — Node/Bun's
+JIT wins the per-query game and amortises the startup cost. For a
+**CLI tool**, a **short cron job**, a **serverless function that
+spins up and dies**, a **container that needs to boot fast**, or any
+**mobile / embedded deployment** — Perry wins on the things the
+environment actually measures you on.
+
+That's why this driver is pure TypeScript: the same source compiles
+three ways. You pick the target that matches what you're shipping.
+
+### Where the Perry-native driver fits
+
+| Scenario | Best choice | Why |
+| -------- | ----------- | --- |
+| Long-running web server with warm V8 | `@perry/postgres` on Node / Bun, or `pg` if you want the absolute floor | JIT beats AOT on tight per-query loops |
+| CLI / one-shot tool that opens a connection, runs N queries, exits | `@perry/postgres` on Perry-native | 5–20× faster startup, ~50 MB less RSS, single binary to distribute |
+| Serverless function (cold start is the whole game) | `@perry/postgres` on Perry-native, OR Bun if you can ship a Bun-ABI target | Bun is 10ms-class on cold start too; Perry wins on RSS |
+| iOS / Android / watchOS app that needs local Postgres | `@perry/postgres` on Perry-native | Node/Bun don't run there at all |
+| Embedded / resource-constrained Linux | `@perry/postgres` on Perry-native | single static binary, no runtime deps |
+| ETL / analytics pipeline that processes millions of rows | **`pg` on Node**, with `parseTypes: 'minimal'` on this driver if you want the same API | pg's "strings by default" is the bulk-decode floor |
+
+---
 
 ¹ Perry-native runs via `perry compile src/…/bench-this.ts`. The
   2–3 ms per-call floor is the AOT runtime's `Promise` / `async` /
