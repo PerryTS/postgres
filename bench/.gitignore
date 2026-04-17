@@ -1,2 +1,5 @@
 node_modules/
 results/all.txt
+# bun writes its own lockfile alongside npm's; ignore it so npm
+# installs remain reproducible as the canonical path.
+bun.lock

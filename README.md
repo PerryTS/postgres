@@ -469,12 +469,38 @@ Notes:
   the accessor-descriptor `String` allocation to a lazy path.
   Requires Perry ≥ 0.5.29.
 
-Reproduce: `bench/run-all.sh` after `npm install` inside `bench/`
-(plus `cargo` on PATH for the Rust runner) and either pointing
-`PGHOST` / `PGPORT` etc. at any Postgres or starting the local one
-in the same shape (`postgres -p 55432`). The script captures raw
-output to `bench/results/all.txt` and a sorted summary to
-`bench/results/summary.md`.
+Reproduce: see [`bench/README.md`](./bench/README.md) for the full
+setup (local Postgres, `npm install`, optional Rust toolchain) and
+per-runner invocations. Short version:
+
+```bash
+cd bench && npm install && cd -
+PGHOST=127.0.0.1 PGPORT=55432 PGUSER=$(whoami) PGDATABASE=bench \
+    bench/run-all.sh
+```
+
+## Examples
+
+Every file under [`examples/`](./examples/) is a standalone program
+that compiles under Perry AND runs under Node / Bun unchanged — point
+at any Postgres with the libpq environment variables and they work.
+See [`examples/README.md`](./examples/README.md) for the full list.
+Quick smokes if you just want to verify the driver works for you:
+
+```bash
+# Node / Bun:
+PGHOST=… node --import tsx examples/perry-smoke.ts
+PATH=~/.bun/bin:$PATH PGHOST=… bun examples/perry-smoke.ts
+
+# Perry-native:
+/path/to/perry compile examples/perry-smoke.ts -o /tmp/perry-smoke
+PGHOST=… /tmp/perry-smoke
+```
+
+`perry-smoke.ts` covers the entire public API surface — connect,
+auth, simple + extended queries, type codecs, error handling,
+transactions — in ~100 lines. It's the canonical "does this driver
+work for me" smoke.
 
 ## Testing
 
