@@ -366,20 +366,27 @@ unix socket loopback, no SSH tunnel — RTT removed from the picture).
 
 | workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native¹ | pg (node)   | pg-native (node)² | postgres.js (node) | tokio-postgres (rust) |
 | ------------ | -------------------- | ------------------- | ----------------------------- | ----------- | ----------------- | ------------------ | --------------------- |
-| `SELECT 1`   | 88µs                 | 88µs                | (see note¹)                   | 83µs        | 59µs              | 56µs               | 95µs                  |
-| param 1-row  | 149µs                | 99µs                | (see note¹)                   | 125µs       | 75µs              | 134µs              | 99µs                  |
-| 1000 × 20    | 3.6 ms               | 3.3 ms              | (see note¹)                   | **2.5 ms**  | 4.1 ms            | 2.9 ms             | 2.9 ms                |
-| 10000 × 20   | 34.7 ms              | 33.2 ms             | (see note¹)                   | **20.1 ms** | 38.0 ms           | 27.8 ms            | 26.4 ms               |
+| `SELECT 1`   | 56µs                 | 109µs               | 3.0 ms                        | 79µs        | 35µs              | 76µs               | 113µs                 |
+| param 1-row  | 124µs                | 111µs               | 2.5 ms                        | 135µs       | 39µs              | 160µs              | 84µs                  |
+| 1000 × 20    | 3.6 ms               | 3.6 ms              | 10.0 ms                       | **2.5 ms**  | 4.0 ms            | 2.8 ms             | 2.8 ms                |
+| 10000 × 20   | 35.8 ms              | 35.1 ms             | 93.0 ms                       | **20.5 ms** | 37.3 ms           | 26.2 ms            | 26.4 ms               |
 
-¹ Perry-native numbers are blocked pending **PerryTS/perry#72** —
-  0.5.76's scalar-replacement pass miscompiles the row accumulator,
-  so every query returns `.length === 0`. Pre-regression numbers
-  from 0.5.29 were: tiny 3 ms, param 3 ms, 1k×20 42 ms, 10k×20 764 ms.
-  Perry's hidden-class IC work (merged in 0.5.30) will cut those
-  significantly when the regression lands — the standalone
-  micro-repro at `examples/perry-bench-hidden-class.ts` already shows
-  **3.3 ms** for a pure 10k×20 dynamic-key obj build vs Node's 8.5 ms
-  (Perry is now faster per-cell).
+¹ Perry-native runs via `perry compile src/…/bench-this.ts`. The
+  2–3 ms per-call floor is the AOT runtime's `Promise` / `async` /
+  FFI overhead — Node and Bun amortise that into ~100µs per call
+  via V8's / JSC's deopt-free hot paths. Bulk decode converged to
+  within ~2.5× of Node after the v0.5.30 hidden-class IC work
+  (standalone 10k×20 dynamic-key object build actually **beats**
+  Node at 3.3 ms vs 8.5 ms; the Postgres-path 2.5× gap is all
+  protocol-frame decoding + per-cell wrapper allocation, not
+  object-shape cost).
+
+  Requires Perry ≥ 0.5.82 for correctness (the earlier chain of
+  fixes was #32 / #33 / #34 / #35 / #36 / #68 / #70 / #71 / #72).
+  A residual flakiness issue ([PerryTS/perry#73](https://github.com/PerryTS/perry/issues/73))
+  causes about 3 in 4 bench runs to SIGSEGV after `tiny` or corrupt
+  the `large-10k-x-20` sample array — numbers here are from a clean
+  completion. Retry if your run ends early.
 
 ² `pg-native` is the libpq N-API binding. Only runs on **Node** in
   practice: Perry-native can't load dynamically-linked C addons (this
@@ -388,11 +395,34 @@ unix socket loopback, no SSH tunnel — RTT removed from the picture).
   which isn't in the standard install flow.
 
   Counter-intuitively, pg-native is **~1.8× slower** than `pg` (pure
-  JS) on bulk decode (38 ms vs 20 ms on 10k × 20). The N-API
+  JS) on bulk decode (37 ms vs 21 ms on 10k × 20). The N-API
   boundary-crossing per row + per-cell marshalling into V8 objects
   costs more than pg's stay-in-V8 text-format parser. C-speed inner
   loops don't help when every parsed value still has to become a JS
   heap object.
+
+### Perry-native journey
+
+The Perry-native column changed dramatically across 0.5.29 → 0.5.82:
+
+| workload      | 0.5.29     | 0.5.82    | change  |
+| ------------- | ---------- | --------- | ------- |
+| `SELECT 1`    | 3.0 ms     | 3.0 ms    | -       |
+| param 1-row   | 3.0 ms     | 2.5 ms    | -17%    |
+| 1000 × 20     | 42 ms      | 10 ms     | **-76%** |
+| 10000 × 20    | 764 ms     | 93 ms     | **-88%** |
+
+The big wins came from:
+
+1. **Hidden-class inline caches** for `obj[name] = value` writes (v0.5.30
+   closed [#37](https://github.com/PerryTS/perry/issues/37) which I filed
+   during this work). The linear-scan property set was O(N²) per row; the
+   IC transition-cache made it O(N). Alone closes most of the gap.
+2. **Escape-analysis scalar replacement** of non-escaping object literals
+   (v0.5.76 #66) — 10k row objects that never escape their iteration
+   frame stay on the stack.
+3. **GC root-scanning fixes** across v0.5.25–v0.5.28 that unblocked
+   iteration past the first query at all.
 
 Notes:
 
