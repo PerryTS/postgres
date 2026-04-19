@@ -1,7 +1,7 @@
 {
-  "name": "@perry/postgres-bench",
+  "name": "@perryts/postgres-bench",
   "private": true,
-  "description": "Benchmark sandbox for @perry/postgres. Lives in its own package so the comparison libraries (pg, postgres) stay out of the published driver's dependency tree.",
+  "description": "Benchmark sandbox for @perryts/postgres. Lives in its own package so the comparison libraries (pg, postgres) stay out of the published driver's dependency tree.",
   "scripts": {
     "bench:this:bun": "bun bench-this.ts",
     "bench:this:node": "node --import tsx bench-this.ts",

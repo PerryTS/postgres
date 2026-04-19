@@ -2,7 +2,7 @@
 // values become `$1`, `$2`, … placeholders with matching parameter
 // bindings — no string concatenation in user code.
 //
-//   import { sql } from '@perry/postgres';
+//   import { sql } from '@perryts/postgres';
 //
 //   const id = 42;
 //   const name = "O'Malley";

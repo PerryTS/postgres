@@ -1,5 +1,5 @@
 {
-  "name": "@perry/postgres",
+  "name": "@perryts/postgres",
   "version": "0.2.0",
   "description": "Pure-TypeScript Postgres wire-protocol driver. Runs on Node.js and Bun, and compiles to a native binary via Perry (LLVM). Zero native dependencies.",
   "keywords": [
@@ -40,7 +40,7 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["src/", "dist/", "README.md", "LICENSE", "CLAUDE.md"],
+  "files": ["src/", "dist/", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc",
     "test": "bun test",

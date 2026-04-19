@@ -1,4 +1,4 @@
-# @perry/postgres examples
+# @perryts/postgres examples
 
 Each `.ts` file in this directory is a standalone, runnable program —
 no test harness, no framework. Compile with Perry for a native

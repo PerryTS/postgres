@@ -4,9 +4,9 @@
 # files on every run.
 #
 # Variants:
-#   1. @perry/postgres on Bun
-#   2. @perry/postgres on Node
-#   3. @perry/postgres compiled to Perry-native binary
+#   1. @perryts/postgres on Bun
+#   2. @perryts/postgres on Node
+#   3. @perryts/postgres compiled to Perry-native binary
 #   4. pg              on Node
 #   5. postgres.js     on Node
 #
@@ -38,27 +38,27 @@ run() {
     echo "" >> "${ALL}"
 }
 
-# 1. @perry/postgres on Bun
+# 1. @perryts/postgres on Bun
 if [[ -x "${BUN}" ]]; then
-    run "@perry/postgres on Bun" "${BUN}" "${BENCH}/bench-this.ts"
+    run "@perryts/postgres on Bun" "${BUN}" "${BENCH}/bench-this.ts"
 else
-    echo "▸ @perry/postgres on Bun — SKIPPED (bun not at ${BUN})" | tee -a "${ALL}"
+    echo "▸ @perryts/postgres on Bun — SKIPPED (bun not at ${BUN})" | tee -a "${ALL}"
 fi
 
-# 2. @perry/postgres on Node
-run "@perry/postgres on Node" node --import tsx "${BENCH}/bench-this.ts"
+# 2. @perryts/postgres on Node
+run "@perryts/postgres on Node" node --import tsx "${BENCH}/bench-this.ts"
 
-# 3. @perry/postgres compiled to Perry-native
+# 3. @perryts/postgres compiled to Perry-native
 if [[ -x "${PERRY}" ]]; then
     PERRY_BIN="$(mktemp -t bench-this.XXXXXX)"
     if "${PERRY}" compile "${BENCH}/bench-this.ts" -o "${PERRY_BIN}" >> "${ALL}" 2>&1; then
-        run "@perry/postgres on Perry (native)" "${PERRY_BIN}"
+        run "@perryts/postgres on Perry (native)" "${PERRY_BIN}"
     else
-        echo "▸ @perry/postgres on Perry — compile FAILED" | tee -a "${ALL}"
+        echo "▸ @perryts/postgres on Perry — compile FAILED" | tee -a "${ALL}"
     fi
     rm -f "${PERRY_BIN}"
 else
-    echo "▸ @perry/postgres on Perry — SKIPPED (perry not at ${PERRY})" | tee -a "${ALL}"
+    echo "▸ @perryts/postgres on Perry — SKIPPED (perry not at ${PERRY})" | tee -a "${ALL}"
 fi
 
 # 4. pg on Node
@@ -71,7 +71,7 @@ run "postgres.js on Node" node --import tsx "${BENCH}/bench-postgres-js.ts"
 # excluded: Bun can load N-API addons but `pg-native` doesn't ship a
 # prebuilt binary for Bun's ABI and building from source requires
 # a node-gyp + Python toolchain; Perry-native can't load dynamically-
-# linked C addons at all (that's why @perry/postgres is pure TS).
+# linked C addons at all (that's why @perryts/postgres is pure TS).
 # Record the Node number for the "native C driver ceiling from a JS
 # host" comparison.
 run "pg-native on Node" node --import tsx "${BENCH}/bench-pg-native.ts"
@@ -101,7 +101,7 @@ SUMMARY="${OUT}/summary.md"
     echo "PG: \`${PGHOST:-127.0.0.1}:${PGPORT:-5432}/${PGDATABASE:-perch_test}\`"
     echo ""
     echo '```'
-    grep -E '^(@perry/postgres|pg |postgres.js|tokio-postgres|pg-native)' "${ALL}" || true
+    grep -E '^(@perryts/postgres|pg |postgres.js|tokio-postgres|pg-native)' "${ALL}" || true
     echo '```'
 } > "${SUMMARY}"
 

@@ -4,7 +4,7 @@
 //
 // Runs on Node and Bun (both load `.node` N-API addons). Does NOT run
 // on Perry-native because Perry can't load dynamically-linked C
-// addons; the whole motivation for @perry/postgres being a pure-TS
+// addons; the whole motivation for @perryts/postgres being a pure-TS
 // driver is that `pg-native` is structurally unavailable on AOT
 // targets. The run-all driver skips this runner on Perry.
 

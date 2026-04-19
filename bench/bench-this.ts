@@ -1,4 +1,4 @@
-// Benchmark for @perry/postgres itself. Runs on Node, Bun, AND Perry-
+// Benchmark for @perryts/postgres itself. Runs on Node, Bun, AND Perry-
 // native (compile via `perry compile`). Same source, same workloads,
 // same output format — diff the columns to see the LLVM-vs-V8/JSC
 // story.
@@ -39,12 +39,12 @@ function driverLabel(): string {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const g = globalThis as any;
     if (g.Bun !== undefined) {
-        return '@perry/postgres bun' + tag;
+        return '@perryts/postgres bun' + tag;
     }
     if (g.process !== undefined && g.process.versions !== undefined && g.process.versions.node !== undefined) {
-        return '@perry/postgres node' + tag;
+        return '@perryts/postgres node' + tag;
     }
-    return '@perry/postgres perry' + tag;
+    return '@perryts/postgres perry' + tag;
 }
 
 function isPerry(): boolean {

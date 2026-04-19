@@ -1,4 +1,4 @@
-# @perry/postgres
+# @perryts/postgres
 
 A pure-TypeScript Postgres driver that speaks the wire protocol directly —
 no `libpq`, no native addons, no runtime FFI. It runs unchanged on
@@ -8,20 +8,20 @@ binary via LLVM** — giving you a real standalone executable that talks to
 Postgres with no JS runtime attached.
 
 > Perry is a TypeScript-to-native compiler: it lowers a strict subset of TS
-> through LLVM into a statically-linked binary. `@perry/postgres` is the
+> through LLVM into a statically-linked binary. `@perryts/postgres` is the
 > reference driver used by [**Tusk**](https://github.com/TuskQuery) (the
 > Perry-native Postgres GUI), and the showcase for Perry's systems
 > capabilities — every socket read, TLS handshake, and crypto op goes
 > through perry-stdlib rather than a Rust or C shim.
 
 ```bash
-bun add @perry/postgres
-npm install @perry/postgres
-pnpm add @perry/postgres
+bun add @perryts/postgres
+npm install @perryts/postgres
+pnpm add @perryts/postgres
 ```
 
 ```ts
-import { connect, sql } from '@perry/postgres';
+import { connect, sql } from '@perryts/postgres';
 
 const conn = await connect('postgres://alice:secret@db.example.com:5432/myapp');
 
@@ -41,7 +41,7 @@ That's a non-starter for two use cases we care about:
 1. **Compiling to a native binary with Perry.** Perry produces a
    statically-linked executable via LLVM; there is no Node runtime at
    execution time, so any driver that assumes V8 / N-API / `require('pg-native')`
-   is unusable. `@perry/postgres` uses only APIs that exist on both
+   is unusable. `@perryts/postgres` uses only APIs that exist on both
    Perry's stdlib and Node core (`Buffer`, `net.Socket`, `crypto.*`,
    `tls.connect`), so the same TypeScript source runs on a JS runtime
    *and* compiles to a native binary.
@@ -99,7 +99,7 @@ which runtime it's on.
 ### Connecting
 
 ```ts
-import { connect } from '@perry/postgres';
+import { connect } from '@perryts/postgres';
 
 // 1. libpq-format URL.
 const conn = await connect('postgres://user:pw@host:5432/db?sslmode=verify-full');
@@ -141,7 +141,7 @@ const r = await conn.query<{ id: number; name: string | null }>(
 );
 
 // Tagged template — the typical app pattern.
-import { sql } from '@perry/postgres';
+import { sql } from '@perryts/postgres';
 
 const id = 42;
 const r = await conn.query(sql`
@@ -153,7 +153,7 @@ const where = active ? sql`WHERE active` : sql``;
 const r = await conn.query(sql`SELECT * FROM users ${where} LIMIT ${10}`);
 
 // Dynamic identifiers. ONLY for caller-controlled values — never user input.
-import { raw } from '@perry/postgres';
+import { raw } from '@perryts/postgres';
 await conn.query(sql`SELECT * FROM ${raw(tableName)} WHERE id = ${id}`);
 ```
 
@@ -200,7 +200,7 @@ overridden method on Perry. Read the underlying field directly
 works as expected.
 
 ```ts
-import { Decimal } from '@perry/postgres';
+import { Decimal } from '@perryts/postgres';
 
 const r = await conn.query('SELECT $1::numeric', ['99999999999999.99']);
 r.rows[0]['?column?'] instanceof Decimal;  // true
@@ -221,7 +221,7 @@ const orderId = await conn.transaction(async (tx) => {
 ### Connection pool
 
 ```ts
-import { createPool } from '@perry/postgres';
+import { createPool } from '@perryts/postgres';
 
 const pool = createPool({
   url: process.env.DATABASE_URL,
@@ -267,7 +267,7 @@ try {
 ### Errors
 
 ```ts
-import { PgError } from '@perry/postgres';
+import { PgError } from '@perryts/postgres';
 
 try {
   await conn.query('SELECT * FROM nope');
@@ -299,7 +299,7 @@ conn.on('notification', (n) => {
 ### Custom type codecs
 
 ```ts
-import { registerType } from '@perry/postgres';
+import { registerType } from '@perryts/postgres';
 
 registerType<{ x: number; y: number }>(POINT_OID, {
   oid: POINT_OID,
@@ -371,7 +371,7 @@ are what it looks like.
 `bench/run-all.sh` against a local Postgres 16, 50 timed iterations +
 5 warmups per workload, p50 wall time. Lower is better:
 
-| workload     | @perry/postgres node | @perry/postgres bun | @perry/postgres perry-native¹ | pg (node)   | pg-native (node)² | postgres.js (node) | tokio-postgres (rust) |
+| workload     | @perryts/postgres node | @perryts/postgres bun | @perryts/postgres perry-native¹ | pg (node)   | pg-native (node)² | postgres.js (node) | tokio-postgres (rust) |
 | ------------ | -------------------- | ------------------- | ----------------------------- | ----------- | ----------------- | ------------------ | --------------------- |
 | `SELECT 1`   | 82µs                 | 87µs                | 2.5 ms                        | 82µs        | 77µs              | 85µs               | 80µs                  |
 | param 1-row  | 138µs                | 63µs                | 2.0 ms                        | 132µs       | 77µs              | 137µs              | 80µs                  |
@@ -414,11 +414,11 @@ three ways. You pick the target that matches what you're shipping.
 
 | Scenario | Best choice | Why |
 | -------- | ----------- | --- |
-| Long-running web server with warm V8 | `@perry/postgres` on Node / Bun, or `pg` if you want the absolute floor | JIT beats AOT on tight per-query loops |
-| CLI / one-shot tool that opens a connection, runs N queries, exits | `@perry/postgres` on Perry-native | 5–20× faster startup, ~50 MB less RSS, single binary to distribute |
-| Serverless function (cold start is the whole game) | `@perry/postgres` on Perry-native, OR Bun if you can ship a Bun-ABI target | Bun is 10ms-class on cold start too; Perry wins on RSS |
-| iOS / Android / watchOS app that needs local Postgres | `@perry/postgres` on Perry-native | Node/Bun don't run there at all |
-| Embedded / resource-constrained Linux | `@perry/postgres` on Perry-native | single static binary, no runtime deps |
+| Long-running web server with warm V8 | `@perryts/postgres` on Node / Bun, or `pg` if you want the absolute floor | JIT beats AOT on tight per-query loops |
+| CLI / one-shot tool that opens a connection, runs N queries, exits | `@perryts/postgres` on Perry-native | 5–20× faster startup, ~50 MB less RSS, single binary to distribute |
+| Serverless function (cold start is the whole game) | `@perryts/postgres` on Perry-native, OR Bun if you can ship a Bun-ABI target | Bun is 10ms-class on cold start too; Perry wins on RSS |
+| iOS / Android / watchOS app that needs local Postgres | `@perryts/postgres` on Perry-native | Node/Bun don't run there at all |
+| Embedded / resource-constrained Linux | `@perryts/postgres` on Perry-native | single static binary, no runtime deps |
 | ETL / analytics pipeline that processes millions of rows | **`pg` on Node**, with `parseTypes: 'minimal'` on this driver if you want the same API | pg's "strings by default" is the bulk-decode floor |
 
 ---

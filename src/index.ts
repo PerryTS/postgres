@@ -1,4 +1,4 @@
-// Public API of @perry/postgres — a pure-TypeScript Postgres wire-protocol
+// Public API of @perryts/postgres — a pure-TypeScript Postgres wire-protocol
 // driver that runs on Node.js / Bun, and ahead-of-time compiles to a native
 // binary on Perry (https://github.com/PerryTS/perry) via LLVM.
 //

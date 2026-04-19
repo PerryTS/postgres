@@ -1,4 +1,4 @@
-# @perry/postgres benchmark suite
+# @perryts/postgres benchmark suite
 
 Cross-host, cross-driver, cross-language benchmarks comparing this
 driver against the Node.js and Rust Postgres ecosystems.
@@ -10,7 +10,7 @@ workloads and the same timing harness:
 
 | Runner | File | Runs on | What it is |
 | ------ | ---- | ------- | ---------- |
-| `@perry/postgres` | `bench-this.ts` | Node / Bun / Perry-native | This driver |
+| `@perryts/postgres` | `bench-this.ts` | Node / Bun / Perry-native | This driver |
 | `pg` | `bench-pg.ts` | Node | node-postgres, pure JS |
 | `pg-native` | `bench-pg-native.ts` | Node only¹ | libpq via N-API |
 | `postgres.js` | `bench-postgres-js.ts` | Node | porsager/postgres |
