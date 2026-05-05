@@ -1,6 +1,6 @@
 {
   "name": "@perryts/postgres",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pure-TypeScript Postgres wire-protocol driver. Runs on Node.js and Bun, and compiles to a native binary via Perry (LLVM). Zero native dependencies.",
   "keywords": [
     "postgres",
