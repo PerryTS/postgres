@@ -2,8 +2,14 @@
 // Node-compatible `net` module, but `createConnection` has a slightly
 // different signature on each side:
 //
-//   - Perry (perry-stdlib):  net.createConnection(host, port)
+//   - Perry (perry-stdlib):  net.createConnection(port, host)
 //   - Node (node:net):       net.createConnection({ host, port })
+//
+// Both forms match Node's spec'd positional shape — `(port, host)` is the
+// ECMAScript form documented at https://nodejs.org/api/net.html#netcreateconnectionport-host-connectlistener.
+// Perry-stdlib originally accepted `(host, port)`; the swap to `(port, host)`
+// landed in perry v0.5.501 (May 2026) and is the form this driver targets
+// from 0.2.2 onward.
 //
 // This file is the only place in the driver that cares. Everything else
 // consumes the returned `Socket` interface, which is the common subset of
@@ -58,16 +64,17 @@ export function isNodeLike(): boolean {
  * asynchronously once the handshake completes.
  *
  * Perry and Node both expose `net.createConnection`, but with different
- * signatures (Perry: `(host, port)`; Node: `({host, port})`). We branch
- * at the call site rather than via a single `(net as any)` indirection
- * because Perry's HIR pattern-matches the literal `net.createConnection`
- * call shape to dispatch to its FFI; an `as any` cast would route it
- * through generic JS-style dispatch and skip the native module lookup.
+ * signatures (Perry: `(port, host)` positional; Node: `({host, port})`
+ * options object). We branch at the call site rather than via a single
+ * `(net as any)` indirection because Perry's HIR pattern-matches the
+ * literal `net.createConnection` call shape to dispatch to its FFI; an
+ * `as any` cast would route it through generic JS-style dispatch and
+ * skip the native module lookup.
  */
 export function openSocket(host: string, port: number): Socket {
     if (isNodeLike()) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (net as any).createConnection({ host: host, port: port }) as Socket;
     }
-    return net.createConnection(host as never, port as never) as unknown as Socket;
+    return net.createConnection(port as never, host as never) as unknown as Socket;
 }
